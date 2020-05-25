@@ -1,7 +1,7 @@
 # PyTorchSRBase
  
 ## Warning
-현재 잘 작동하는 지 테스트 중입니다.
+현재 잘 작동하는 지 테스트 중이며, 아직 구현이 끝나지 않았습니다.
 
 ## Code snippets
 
