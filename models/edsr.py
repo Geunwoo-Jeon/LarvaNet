@@ -61,7 +61,7 @@ class EDSR(BaseModel):
     torch.save(self.model.state_dict(), save_path)
 
   def restore(self, ckpt_path, target=None):
-    self.model.load_state_dict(torch.load(ckpt_path))
+    self.model.load_state_dict(torch.load(ckpt_path, map_location=self.device))
   
   def get_next_train_scale(self):
     scale = self.scale_list[np.random.randint(len(self.scale_list))]
