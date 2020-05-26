@@ -19,6 +19,6 @@ python train.py
 python validate.py
   --dataloader=div2k_loader --data_input_path=c:\data\DIV2K_val_LR_bicubic --data_truth_path=c:\data\DIV2K_val_HR
   --model=edsr
-  --restore_path=d:\tmp\aim2020\edsrb\model_300000.ptb
+  --restore_path=d:\tmp\aim2020\edsrb\model_300000.pth
   --save_path=d:\tmp\aim2020\edsrb\results\300k\
 ```
