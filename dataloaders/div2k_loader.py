@@ -6,6 +6,8 @@ import cv2 as cv
 
 from .base import BaseLoader
 
+# DIV2K dataset loader
+
 def create_loader():
   return DIV2KLoader()
 
