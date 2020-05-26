@@ -7,6 +7,9 @@ import time
 import dataloaders
 import models
 
+import torch
+from torch.utils.tensorboard import SummaryWriter
+
 def main():
   # parse arguments
   parser = argparse.ArgumentParser()
@@ -62,14 +65,11 @@ def main():
     print('restored the model')
 
   # model > summary
-  # TODO
-  """
   summary_writers = {}
   for scale in scale_list:
-    summary_path = os.path.join(FLAGS.train_path, 'x%d' % (scale))
-    summary_writer = tf.summary.FileWriter(summary_path, graph=model.get_session().graph)
+    summary_path = os.path.join(args.train_path, 'x%d' % (scale))
+    summary_writer = SummaryWriter(log_dir=summary_path)
     summary_writers[scale] = summary_writer
-  """
   
   # save arguments
   arguments_path = os.path.join(args.train_path, 'arguments.json')
@@ -82,14 +82,12 @@ def main():
     global_train_step = model.global_step + 1
     local_train_step += 1
 
-    # TODO
-    with_summary = False #True if (local_train_step % args.summary_freq == 0) else False
-
     start_time = time.time()
 
     scale = model.get_next_train_scale()
+    summary = summary_writers[scale] if (local_train_step % args.summary_freq == 0) else None
     input_list, truth_list = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale, input_patch_size=args.input_patch_size)
-    loss, summary = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, with_summary=with_summary)
+    loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary)
 
     duration = time.time() - start_time
     if (args.sleep_ratio > 0 and duration > 0):
@@ -98,10 +96,6 @@ def main():
     if (local_train_step % args.log_freq == 0):
       print('step %d, scale x%d, loss %.6f (%.3f sec/batch)' % (global_train_step, scale, loss, duration))
     
-    # TODO
-    #if (summary is not None):
-    #  summary_writers[scale].add_summary(summary, global_step=global_train_step)
-    
     if (local_train_step % args.save_freq == 0):
       model.save(base_path=args.train_path)
       print('saved a model checkpoint at step %d' % (global_train_step))
@@ -109,6 +103,9 @@ def main():
     
   # finalize
   print('finished')
+  for scale in scale_list:
+    summary_writers[scale].close()
+
 
 
 if __name__ == '__main__':

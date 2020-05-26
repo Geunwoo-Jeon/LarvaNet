@@ -53,17 +53,16 @@ class BaseModel:
     """
     raise NotImplementedError
 
-  def train_step(self, input_list, scale, truth_list, with_summary=False):
+  def train_step(self, input_list, scale, truth_list, summary=None):
     """
     Perform a training step.
     Args:
       input_list: List of the input images.
       scale: Scale to be super-resolved.
       truth_list: List of the ground-truth images. Should be the same shape as input_list.
-      with_summary: Retrieve serialized summary data.
+      summary: Summary writer to write the current training state. Can be None to skip writing for current training step.
     Returns:
       loss: A representative loss value of the current training step.
-      summary: Serialized summary data. None if with_summary=False.
     """
     raise NotImplementedError
   
