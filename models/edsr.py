@@ -94,8 +94,15 @@ class EDSR(BaseModel):
     return loss.item(), None
 
   def upscale(self, input_list, scale):
-    # TODO
-    pass
+    # numpy to torch
+    input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
+
+    # get SR
+    output_tensor = self.model(input_tensor)
+
+    # finalize
+    return output_tensor.detach().cpu().numpy()
+
   
   def _get_learning_rate(self):
     return self.args.edsr_learning_rate * (self.args.edsr_learning_rate_decay ** (self.global_step // self.args.edsr_learning_rate_decay_steps))
