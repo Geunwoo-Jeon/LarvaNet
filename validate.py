@@ -56,14 +56,14 @@ def main():
   print('prepare data loader - %s' % (args.dataloader))
   DATALOADER_MODULE = importlib.import_module('dataloaders.' + args.dataloader)
   dataloader = DATALOADER_MODULE.create_loader()
-  remaining_args = dataloader.parse_args(remaining_args)
+  _, remaining_args = dataloader.parse_args(remaining_args)
   dataloader.prepare(scales=scale_list)
 
   # model
   print('prepare model - %s' % (args.model))
   MODEL_MODULE = importlib.import_module('models.' + args.model)
   model = MODEL_MODULE.create_model()
-  remaining_args = model.parse_args(remaining_args)
+  _, remaining_args = model.parse_args(remaining_args)
   model.prepare(is_training=False, scales=scale_list, global_step=args.restore_global_step)
 
   # check remaining args

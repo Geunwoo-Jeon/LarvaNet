@@ -45,14 +45,14 @@ def main():
   print('prepare data loader - %s' % (args.dataloader))
   DATALOADER_MODULE = importlib.import_module('dataloaders.' + args.dataloader)
   dataloader = DATALOADER_MODULE.create_loader()
-  remaining_args = dataloader.parse_args(remaining_args)
+  dataloader_args, remaining_args = dataloader.parse_args(remaining_args)
   dataloader.prepare(scales=scale_list)
 
   # model
   print('prepare model - %s' % (args.model))
   MODEL_MODULE = importlib.import_module('models.' + args.model)
   model = MODEL_MODULE.create_model()
-  remaining_args = model.parse_args(remaining_args)
+  model_args, remaining_args = model.parse_args(remaining_args)
   model.prepare(is_training=True, scales=scale_list, global_step=args.global_step)
 
   # check remaining args
@@ -73,8 +73,9 @@ def main():
   
   # save arguments
   arguments_path = os.path.join(args.train_path, 'arguments.json')
+  all_args = {**vars(args), **vars(dataloader_args), **vars(model_args)}
   with open(arguments_path, 'w') as f:
-    f.write(json.dumps(vars(args), sort_keys=True, indent=2))
+    f.write(json.dumps(all_args, sort_keys=True, indent=2))
 
   # train
   print('begin training')

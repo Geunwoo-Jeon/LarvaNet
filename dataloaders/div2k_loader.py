@@ -1,4 +1,5 @@
 import argparse
+import copy
 import os
 
 import numpy as np
@@ -23,7 +24,7 @@ class DIV2KLoader(BaseLoader):
     parser.add_argument('--data_cached', action='store_true', help='If true, cache the data on the memory.')
 
     self.args, remaining_args = parser.parse_known_args(args=args)
-    return remaining_args
+    return copy.deepcopy(self.args), remaining_args
 
 
   def prepare(self, scales):

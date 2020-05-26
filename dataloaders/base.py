@@ -17,7 +17,8 @@ class BaseLoader():
     Args:
       args: The list of arguments.
     Returns:
-      args: The list of remaining arguments.
+      args: Parsed arguments.
+      remaining_args: The list of remaining arguments.
     """
     raise NotImplementedError
 

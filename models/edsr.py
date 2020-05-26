@@ -1,4 +1,5 @@
 import argparse
+import copy
 import math
 import os
 
@@ -30,7 +31,7 @@ class EDSR(BaseModel):
     parser.add_argument('--edsr_learning_rate_decay_steps', type=int, default=200000, help='The number of training steps to perform learning rate decay.')
 
     self.args, remaining_args = parser.parse_known_args(args=args)
-    return remaining_args
+    return copy.deepcopy(self.args), remaining_args
   
   def prepare(self, is_training, scales, global_step=0):
     # config. parameters
