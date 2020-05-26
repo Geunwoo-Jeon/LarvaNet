@@ -46,11 +46,12 @@ class EDSR(BaseModel):
 
     # PyTorch model
     self.model = EDSRModule(args=self.args, scale=self.scale)
-    self.optim = optim.Adam(
-      filter(lambda p: p.requires_grad, self.model.parameters()),
-      lr=self._get_learning_rate()
-    )
-    self.loss_fn = nn.L1Loss()
+    if (is_training):
+      self.optim = optim.Adam(
+        filter(lambda p: p.requires_grad, self.model.parameters()),
+        lr=self._get_learning_rate()
+      )
+      self.loss_fn = nn.L1Loss()
 
     # configure device
     self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
