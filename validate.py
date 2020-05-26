@@ -75,6 +75,7 @@ def main():
   print('restored the model')
 
   # validate
+  print('begin validation')
   num_images = dataloader.get_num_images()
   average_psnr_dict = {}
   for scale in scale_list:

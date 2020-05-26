@@ -26,7 +26,7 @@ def main():
   parser.add_argument('--max_steps', type=int, default=300000, help='The maximum number of training steps.')
   parser.add_argument('--log_freq', type=int, default=10, help='The frequency of logging.')
   parser.add_argument('--summary_freq', type=int, default=1000, help='The frequency of logging on TensorBoard.')
-  parser.add_argument('--save_freq', type=int, default=50000, help='The frequency of saving the trained model.')
+  parser.add_argument('--save_freq', type=int, default=10000, help='The frequency of saving the trained model.')
   parser.add_argument('--sleep_ratio', type=float, default=0.05, help='The ratio of sleeping time for each training step, which prevents overheating of GPUs. Specify 0 to disable sleeping.')
 
   parser.add_argument('--restore_path', type=str, help='Checkpoint path to be restored. Specify this to resume the training or use pre-trained parameters.')
@@ -77,6 +77,7 @@ def main():
     f.write(json.dumps(vars(args), sort_keys=True, indent=2))
 
   # train
+  print('begin training')
   local_train_step = 0
   while (model.global_step < args.max_steps):
     global_train_step = model.global_step + 1
