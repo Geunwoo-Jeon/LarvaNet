@@ -9,11 +9,6 @@ import models
 import numpy as np
 import cv2 as cv
 
-def _save_image(image, path):
-  image = np.transpose(image, [1, 2, 0])
-  image = cv.cvtColor(image, cv.COLOR_RGB2BGR)
-  cv.imwrite(path, image)
-
 
 def main():
   # parse arguments
