@@ -50,3 +50,9 @@ python validate.py
   --restore_path=d:\tmp\aim2020\edsrb\model_300000.pth
   --save_path=d:\tmp\aim2020\edsrb\results\300k\
 ```
+
+### EDSR-baseline 검증 없이 이미지만 뽑기
+```shell
+python get_sr.py --model=edsr --restore_path=d:\tmp\aim2020\edsrb\model_300000.pth
+  --input_path=c:\data\BSD100\LR\x4 --output_path=d:\tmp\aim2020\edsrb\results\300k\BSD100\
+```
