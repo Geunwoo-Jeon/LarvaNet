@@ -68,6 +68,8 @@ def main():
     input_image = np.transpose(input_image, [2, 0, 1])
 
     output_image = model.upscale(input_list=[input_image], scale=args.scale)[0]
+    output_image = np.clip(output_image, a_min=0, a_max=255)
+    output_image = np.round(output_image).astype(np.uint8)
     output_image = np.transpose(output_image, [1, 2, 0])
     output_image = cv.cvtColor(output_image, cv.COLOR_RGB2BGR)
     cv.imwrite(image_output_path, output_image)
