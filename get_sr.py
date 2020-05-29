@@ -13,7 +13,7 @@ import cv2 as cv
 
 def main():
   # parse arguments
-  parser = argparse.ArgumentParser()
+  parser = argparse.ArgumentParser() 
 
   parser.add_argument('--model', type=str, default='edsr', help='Name of the model.')
 
