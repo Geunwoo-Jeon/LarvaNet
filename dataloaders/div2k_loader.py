@@ -19,8 +19,8 @@ class DIV2KLoader(BaseLoader):
   
   def parse_args(self, args):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--data_input_path', type=str, default='DIV2K_train_LR_bicubic', help='Base path of the input images. For example, if you specify this argument to \'LR\', the downscaled images by a factor of 4 should be in \'LR/X4/\'.')
-    parser.add_argument('--data_truth_path', type=str, default='DIV2K_train_HR', help='Base path of the ground-truth images.')
+    parser.add_argument('--data_input_path', type=str, default='c:/aim2020/data/DIV2K_train_LR_bicubic', help='Base path of the input images. For example, if you specify this argument to \'LR\', the downscaled images by a factor of 4 should be in \'LR/X4/\'.')
+    parser.add_argument('--data_truth_path', type=str, default='c:/aim2020/data/DIV2K_train_HR', help='Base path of the ground-truth images.')
     parser.add_argument('--data_cached', action='store_true', help='If true, cache the data on the memory.')
 
     self.args, remaining_args = parser.parse_known_args(args=args)
