@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from models.base import BaseModel
+import pytorch_ssim
 
 
 def create_model():
@@ -52,7 +53,9 @@ class EDSR(BaseModel):
         filter(lambda p: p.requires_grad, self.model.parameters()),
         lr=self._get_learning_rate()
       )
-      self.loss_fn = nn.L1Loss()
+      # self.loss_fn = nn.L1Loss()
+      self.loss_l1 = nn.L1Loss()
+      self.loss_ssim = pytorch_ssim.SSIM()
 
     # configure device
     self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -76,7 +79,10 @@ class EDSR(BaseModel):
 
     # get SR and calculate loss
     output_tensor = self.model(input_tensor)
-    loss = self.loss_fn(output_tensor, truth_tensor)
+    # loss = self.loss_fn(output_tensor, truth_tensor)
+    loss_l1 = self.loss_l1(output_tensor, truth_tensor)
+    loss_ssim = self.loss_ssim(output_tensor/255.0, truth_tensor/255.0)
+    loss = 0.1 * loss_l1 - loss_ssim 
 
     # adjust learning rate
     lr = self._get_learning_rate()
