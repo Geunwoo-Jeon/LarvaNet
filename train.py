@@ -25,7 +25,7 @@ def main():
   parser.add_argument('--train_path', type=str, default='c:/aim2020/edsrb/train/', help='Base path of the trained model to be saved.')
   parser.add_argument('--max_steps', type=int, default=300000, help='The maximum number of training steps.')
   parser.add_argument('--log_freq', type=int, default=10, help='The frequency of logging.')
-  parser.add_argument('--summary_freq', type=int, default=100, help='The frequency of logging on TensorBoard.')
+  parser.add_argument('--summary_freq', type=int, default=1000, help='The frequency of logging on TensorBoard.')
   parser.add_argument('--save_freq', type=int, default=10000, help='The frequency of saving the trained model.')
   parser.add_argument('--sleep_ratio', type=float, default=0.05, help='The ratio of sleeping time for each training step, which prevents overheating of GPUs. Specify 0 to disable sleeping.')
 

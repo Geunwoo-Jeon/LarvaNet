@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 import torch.optim as optim
+import torch.nn.functional as F
 
 from models.base import BaseModel
 
@@ -222,14 +223,13 @@ class MSRRModule(nn.Module):
         initialize_weights([self.first_conv, self.HR_conv, self.final_conv], 0.1)
 
     def forward(self, x):
-        x = self.mean_shift(x)
         x = self.lrelu(self.first_conv(x))
 
-        res = self.res_blocks(x)
+        x = self.res_blocks(x)
 
         x = self.upsample(x)
-        x = self.lrelu(self.HR_conv(x))
-        x = self.final_conv(x)
-        x = self.mean_inverse_shift(x)
+        x = self.final_conv(self.lrelu(self.HR_conv(x)))
+        base = F.interpolate(x, scale_factor=self.upscale, mode='bilinear', align_corners=False)
+        x += base
 
         return x
