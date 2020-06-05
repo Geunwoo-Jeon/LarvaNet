@@ -223,13 +223,13 @@ class MSRRModule(nn.Module):
         initialize_weights([self.first_conv, self.HR_conv, self.final_conv], 0.1)
 
     def forward(self, x):
-        x = self.lrelu(self.first_conv(x))
+        out = self.lrelu(self.first_conv(x))
 
-        x = self.res_blocks(x)
+        out = self.res_blocks(out)
 
-        x = self.upsample(x)
-        x = self.final_conv(self.lrelu(self.HR_conv(x)))
-        base = F.interpolate(x, scale_factor=self.upscale, mode='bilinear', align_corners=False)
-        x += base
+        out = self.upsample(out)
+        out = self.final_conv(self.lrelu(self.HR_conv(out)))
+        base = F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=False)
+        out += base
 
-        return x
+        return out
