@@ -30,10 +30,14 @@
     <select />
   </component>
   <component name="ChangeListManager">
+<<<<<<< Updated upstream
     <list default="true" id="6446c766-c1fc-44ab-9c3d-155a83b376f9" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/models/msrr.py" beforeDir="false" afterPath="$PROJECT_DIR$/models/msrr.py" afterDir="false" />
     </list>
+=======
+    <list default="true" id="6446c766-c1fc-44ab-9c3d-155a83b376f9" name="Default Changelist" comment="" />
+>>>>>>> Stashed changes
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
