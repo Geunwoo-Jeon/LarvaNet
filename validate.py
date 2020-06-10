@@ -81,17 +81,24 @@ def main():
   # validate
   print('begin validation')
   num_images = dataloader.get_num_images()
+  average_duration_dict = {}
   average_psnr_dict = {}
   for scale in scale_list:
+    duration_list = []
     psnr_list = []
 
     for image_index in range(num_images):
       input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index, scale=scale)
 
+      start_time = time.perf_counter()
       if (args.chop_forward):
         output_image = image_utils.upscale_with_chop_forward(model=model, input_image=input_image, scale=scale, overlap_size=args.chop_overlap_size)
       else:
         output_image = model.upscale(input_list=[input_image], scale=scale)[0]
+      end_time = time.perf_counter()
+
+      duration = end_time - start_time
+      duration_list.append(duration)
 
       if (args.save_path is not None):
         os.makedirs(os.path.join(args.save_path, 'x%d' % (scale)), exist_ok=True)
@@ -106,11 +113,13 @@ def main():
       psnr = _image_psnr(output_image=output_image, truth_image=truth_image)
 
       psnr_list.append(psnr)
-      print('x%d, %d/%d, psnr=%.2f' % (scale, image_index+1, num_images, psnr))
+      print('x%d, %d/%d, psnr=%.2f, duration=%.4f' % (scale, image_index+1, num_images, psnr, duration))
 
     average_psnr = np.mean(psnr_list)
     average_psnr_dict[scale] = average_psnr
-    print('x%d, average psnr=%.2f' % (scale, average_psnr))
+    average_duration = np.mean(duration_list)
+    average_duration_dict[scale] = average_duration
+    print('x%d, psnr=%.2f, duration=%.4f' % (scale, average_psnr, average_duration))
 
     
   # finalize

@@ -61,10 +61,11 @@ def main():
 
   # get outputs
   print('begin super-resolution')
+  
   num_images = len(image_name_list)
-  for image_index, image_name in enumerate(image_name_list):
-    print('%d/%d, %s' % (image_index+1, num_images, image_name))
+  duration_list = []
 
+  for image_index, image_name in enumerate(image_name_list):
     image_input_path = os.path.join(args.input_path, image_name)
     image_output_path = os.path.join(args.output_path, os.path.splitext(image_name)[0]+'.png')
 
@@ -72,10 +73,15 @@ def main():
     input_image = cv.cvtColor(input_image, cv.COLOR_BGR2RGB)
     input_image = np.transpose(input_image, [2, 0, 1])
 
+    start_time = time.perf_counter()
     if (args.chop_forward):
       output_image = image_utils.upscale_with_chop_forward(model=model, input_image=input_image, scale=args.scale, overlap_size=args.chop_overlap_size)
     else:
       output_image = model.upscale(input_list=[input_image], scale=args.scale)[0]
+    end_time = time.perf_counter()
+
+    duration = end_time - start_time
+    duration_list.append(duration)
     
     output_image = np.clip(output_image, a_min=0, a_max=255)
     output_image = np.round(output_image).astype(np.uint8)
@@ -83,9 +89,12 @@ def main():
     output_image = cv.cvtColor(output_image, cv.COLOR_RGB2BGR)
     cv.imwrite(image_output_path, output_image)
 
+    print('%d/%d, %s, duration: %.4fs' % (image_index+1, num_images, image_name, duration))
+
     
   # finalize
   print('finished')
+  print('- average duration: %.4fs' % (np.mean(duration_list)))
 
 
 
