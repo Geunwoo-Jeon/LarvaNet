@@ -6,6 +6,7 @@ import time
 
 import dataloaders
 import models
+from utils import image_utils
 
 import numpy as np
 import cv2 as cv
@@ -45,6 +46,9 @@ def main():
 
   parser.add_argument('--save_path', type=str, help='Base output path of the upscaled images. Specify this to save the upscaled images.')
 
+  parser.add_argument('--chop_forward', action='store_true', help='Employ chop-forward to reduce the memory usage.')
+  parser.add_argument('--chop_overlap_size', type=int, default=20, help='The overlapping size for the chop-forward process. Should be even.')
+
   args, remaining_args = parser.parse_known_args()
 
 
@@ -83,7 +87,11 @@ def main():
 
     for image_index in range(num_images):
       input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index, scale=scale)
-      output_image = model.upscale(input_list=[input_image], scale=scale)[0]
+
+      if (args.chop_forward):
+        output_image = image_utils.upscale_with_chop_forward(model=model, input_image=input_image, scale=scale, overlap_size=args.chop_overlap_size)
+      else:
+        output_image = model.upscale(input_list=[input_image], scale=scale)[0]
 
       if (args.save_path is not None):
         os.makedirs(os.path.join(args.save_path, 'x%d' % (scale)), exist_ok=True)
