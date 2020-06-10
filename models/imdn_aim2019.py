@@ -174,18 +174,12 @@ class IMDBlock(nn.Module):
 
 
 class UpsampleBlock(nn.Module):
-  def __init__(self, num_channels, scale):
+  def __init__(self, num_channels, out_channels, scale):
     super(UpsampleBlock, self).__init__()
 
     layers = []
-    if scale == 2 or scale == 4 or scale == 8:
-      for _ in range(int(math.log(scale, 2))):
-        layers.append(nn.Conv2d(in_channels=num_channels, out_channels=4*num_channels, kernel_size=3, stride=1, padding=1))
-        layers.append(nn.PixelShuffle(2))
-    elif scale == 3:
-        layers.append(nn.Conv2d(in_channels=num_channels, out_channels=9*num_channels, kernel_size=3, stride=1, padding=1))
-        layers.append(nn.PixelShuffle(3))
-
+    layers.append(nn.Conv2d(in_channels=num_channels, out_channels=out_channels*(scale**2), kernel_size=3, stride=1, padding=1))
+    layers.append(nn.PixelShuffle(scale))
     self.body = nn.Sequential(*layers)
   
   def forward(self, x):
@@ -207,8 +201,8 @@ class IMDN_AIM2019_Module(nn.Module):
     self.res_blocks = nn.Sequential(*res_block_layers)
     self.after_res_conv = nn.Conv2d(in_channels=args.num_filters, out_channels=args.num_filters, kernel_size=3, stride=1, padding=1)
 
-    self.upsample = UpsampleBlock(num_channels=args.num_filters, scale=scale)
-    self.final_conv = nn.Conv2d(in_channels=args.num_filters, out_channels=3, kernel_size=3, stride=1, padding=1)
+    self.upsample = UpsampleBlock(num_channels=args.num_filters, out_channels=3, scale=scale)
+
 
     self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
   
@@ -218,10 +212,10 @@ class IMDN_AIM2019_Module(nn.Module):
 
     res = self.res_blocks(x)
     res = self.after_res_conv(res)
+    
     x = torch.add(x, res)
 
     x = self.upsample(x)
-    x = self.final_conv(x)
     x = self.mean_inverse_shift(x)
 
     return x
