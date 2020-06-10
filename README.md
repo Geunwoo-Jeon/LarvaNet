@@ -56,3 +56,8 @@ python validate.py
 python get_sr.py --model=edsr --restore_path=d:\tmp\aim2020\edsrb\model_300000.pth
   --input_path=c:\data\BSD100\LR\x4 --output_path=d:\tmp\aim2020\edsrb\results\300k\BSD100\
 ```
+
+### EDSR-baseline 모델 구조 요약 (parameter 수, FLOP 수 등)
+```shell
+python summarize.py --model=edsr --scale=4 --input_width=224 --input_height=224
+```

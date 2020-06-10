@@ -6,6 +6,7 @@ import os
 import time
 
 import models
+from utils import image_utils
 
 import numpy as np
 import cv2 as cv
@@ -60,10 +61,11 @@ def main():
 
   # get outputs
   print('begin super-resolution')
+  
   num_images = len(image_name_list)
-  for image_index, image_name in enumerate(image_name_list):
-    print('%d/%d, %s' % (image_index+1, num_images, image_name))
+  duration_list = []
 
+  for image_index, image_name in enumerate(image_name_list):
     image_input_path = os.path.join(args.input_path, image_name)
     image_output_path = os.path.join(args.output_path, os.path.splitext(image_name)[0]+'.png')
 
@@ -71,13 +73,15 @@ def main():
     input_image = cv.cvtColor(input_image, cv.COLOR_BGR2RGB)
     input_image = np.transpose(input_image, [2, 0, 1])
 
-    input_split_images = _split_image(input_image, chop=args.chop_forward, overlap_size=args.chop_overlap_size)
-    output_split_images = []
-    for input_split in input_split_images:
-      output_split = model.upscale(input_list=[input_split], scale=args.scale)[0]
-      output_split_images.append(output_split)
-    
-    output_image = _combine_images(output_split_images, input_image=input_image, scale=args.scale, chop=args.chop_forward, overlap_size=args.chop_overlap_size)
+    start_time = time.perf_counter()
+    if (args.chop_forward):
+      output_image = image_utils.upscale_with_chop_forward(model=model, input_image=input_image, scale=args.scale, overlap_size=args.chop_overlap_size)
+    else:
+      output_image = model.upscale(input_list=[input_image], scale=args.scale)[0]
+    end_time = time.perf_counter()
+
+    duration = end_time - start_time
+    duration_list.append(duration)
     
     output_image = np.clip(output_image, a_min=0, a_max=255)
     output_image = np.round(output_image).astype(np.uint8)
@@ -85,48 +89,12 @@ def main():
     output_image = cv.cvtColor(output_image, cv.COLOR_RGB2BGR)
     cv.imwrite(image_output_path, output_image)
 
+    print('%d/%d, %s, duration: %.4fs' % (image_index+1, num_images, image_name, duration))
+
     
   # finalize
   print('finished')
-
-
-def _split_image(image, chop, overlap_size):
-  if (not chop):
-    return [image]
-  
-  _, height, width = image.shape
-  split_height = height // 2
-  split_width = width // 2
-  half_overlap_size = overlap_size // 2
-
-  images = []
-  images.append(copy.deepcopy(image[:, :(split_height+half_overlap_size), :(split_width+half_overlap_size)]))
-  images.append(copy.deepcopy(image[:, :(split_height+half_overlap_size), (split_width-half_overlap_size):]))
-  images.append(copy.deepcopy(image[:, (split_height-half_overlap_size):, :(split_width+half_overlap_size)]))
-  images.append(copy.deepcopy(image[:, (split_height-half_overlap_size):, (split_width-half_overlap_size):]))
-  
-  return images
-
-def _combine_images(images, input_image, scale, chop, overlap_size):
-  if (len(images) == 1):
-    return images[0]
-  
-  _, height, width = input_image.shape
-  split_height = height // 2
-  split_width = width // 2
-  new_height = height * scale
-  new_width = width * scale
-  new_split_height = split_height * scale
-  new_split_width = split_width * scale
-  new_half_overlap_size = (overlap_size // 2) * scale
-
-  output_image = np.zeros([3, new_height, new_width])
-  output_image[:, :new_split_height, :new_split_width] = images[0][:, :new_split_height, :new_split_width]
-  output_image[:, :new_split_height, new_split_width:] = images[1][:, :new_split_height, new_half_overlap_size:]
-  output_image[:, new_split_height:, :new_split_width] = images[2][:, new_half_overlap_size:, :new_split_width]
-  output_image[:, new_split_height:, new_split_width:] = images[3][:, new_half_overlap_size:, new_half_overlap_size:]
-
-  return output_image
+  print('- average duration: %.4fs' % (np.mean(duration_list)))
 
 
 

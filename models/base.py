@@ -45,6 +45,14 @@ class BaseModel:
       target: (Optional) Target of the restoration.
     """
     raise NotImplementedError
+
+  def get_model(self):
+    """
+    Get main PyTorch model.
+    Returns:
+      model: Main model. Can be null.
+    """
+    raise NotImplementedError
   
   def get_next_train_scale(self):
     """
