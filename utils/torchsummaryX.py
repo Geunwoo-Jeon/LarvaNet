@@ -117,18 +117,45 @@ def summary(model, x, *args, layer_modules=layer_modules, print_summary=True, **
   max_repr_width = max([len(row) for row in df.to_string().split("\n")])
 
   df_total = pd.DataFrame(
-    {"Total params": (df_sum["Params"] + df_sum["params_nt"]),
-    "Trainable params": df_sum["Params"],
-    "Non-trainable params": df_sum["params_nt"],
-    "Mult-Adds": df_sum["Mult-Adds"]
+    {
+      "Total params": (df_sum["Params"] + df_sum["params_nt"]),
+      "Trainable params": df_sum["Params"],
+      "Non-trainable params": df_sum["params_nt"],
+      "Mult-Adds": df_sum["Mult-Adds"]
     },
     index=['Totals']
   ).T
   
   if print_summary:
+    print('')
+    print('===== summary =====')
+    print('layer_name\tmultiadds\tparams\tparams(non-trainable)\tkernel_shape\toutput_shape')
+    macs_list = []
+    params_list = []
+    params_nt_list = []
+
+    for layer_name, each_summary in summary.items():
+      print('%s\t%s\t%s\t%s\t%s\t%s' % (layer_name, each_summary['macs'], each_summary['params'], each_summary['params_nt'], each_summary['ksize'], each_summary['out']))
+
+      if (each_summary['macs'] != "-"):
+        macs_list.append(each_summary['macs'])
+      if (each_summary['params'] != "-"):
+        params_list.append(each_summary['params'])
+      if (each_summary['params_nt'] != "-"):
+        params_nt_list.append(each_summary['params_nt'])
+    
+    print('===== ======= =====')
+
+    print('===== total =====')
+    print('- multiadds: %s' % (np.sum(macs_list)))
+    print('- params: %s' % (np.sum(params_list)))
+    print('- params (non-trainable): %s' % (np.sum(params_nt_list)))
+    print('===== ===== =====')
+    print('')
+
     option = pd.option_context(
-      "display.max_rows", 600,
-      "display.max_columns", 10,
+      "display.max_rows", 10000,
+      "display.max_columns", 20,
       "display.float_format", pd.io.formats.format.EngFormatter(use_eng_prefix=True)
     )
     with option:
@@ -137,7 +164,7 @@ def summary(model, x, *args, layer_modules=layer_modules, print_summary=True, **
       print("-"*max_repr_width)
       print(df_total)
       print("="*max_repr_width)
-
+  
   return df, df_total
 
 def get_names_dict(model):
