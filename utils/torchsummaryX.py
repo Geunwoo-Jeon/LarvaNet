@@ -44,8 +44,8 @@ def summary(model, x, *args, layer_modules=layer_modules, print_summary=True, **
       info["inner"] = OrderedDict()
       info["params_nt"], info["params"], info["macs"] = 0, 0, 0
       for name, param in module.named_parameters():
-        info["params"] += param.nelement() * param.requires_grad
-        info["params_nt"] += param.nelement() * (not param.requires_grad)
+        info["params"] += np.int64(param.nelement()) * param.requires_grad
+        info["params_nt"] += np.int64(param.nelement()) * (not param.requires_grad)
 
         if name == "weight":
           ksize = list(param.size())
@@ -56,7 +56,7 @@ def summary(model, x, *args, layer_modules=layer_modules, print_summary=True, **
 
           # ignore N, C when calculate Mult-Adds in ConvNd
           if "Conv" in cls_name:
-            info["macs"] += int(param.nelement() * np.prod(info["out"][2:]))
+            info["macs"] += (np.int64(param.nelement()) * np.prod(np.int64(info["out"][2:])))
           else:
             info["macs"] += param.nelement()
 
