@@ -6,8 +6,8 @@ import time
 
 import dataloaders
 import models
+from utils import image_utils
 
-import torch
 import numpy as np
 import cv2 as cv
 
@@ -32,18 +32,6 @@ def _save_image(image, path):
     image = cv.cvtColor(image, cv.COLOR_RGB2BGR)
     cv.imwrite(path, image)
 
-def _upscale(model, input_image):
-    input_tensor = torch.tensor([input_image], dtype=torch.float32, device=model.device)
-
-    torch.cuda.synchronize()
-    start_time = time.time()
-
-    output_tensor = model.model(input_tensor)
-
-    torch.cuda.synchronize()
-    runtime = time.time() - start_time
-
-    return runtime, output_tensor.detach().cpu().numpy()[0]
 
 def main():
     # parse arguments
@@ -54,7 +42,7 @@ def main():
 
     parser.add_argument('--scales', type=str, default='4',
                         help='Scales of the input images. Use the \',\' character to specify multiple scales (e.g., 2,3,4).')
-    parser.add_argument('--cuda_device', type=str, default='0',
+    parser.add_argument('--cuda_device', type=str, default='-1',
                         help='CUDA device index to be used in training. This parameter may be set to the environment variable \'CUDA_VISIBLE_DEVICES\'. Specify it as -1 to disable GPUs.')
 
     parser.add_argument('--restore_path', type=str, required=True,
@@ -66,13 +54,15 @@ def main():
     parser.add_argument('--save_path', type=str,
                         help='Base output path of the upscaled images. Specify this to save the upscaled images.')
 
+    parser.add_argument('--chop_forward', action='store_true', help='Employ chop-forward to reduce the memory usage.')
+    parser.add_argument('--chop_overlap_size', type=int, default=20,
+                        help='The overlapping size for the chop-forward process. Should be even.')
+
     args, remaining_args = parser.parse_known_args()
 
     # initialize
     os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_device
     scale_list = list(map(lambda x: int(x), args.scales.split(',')))
-    torch.cuda.current_device()
-    torch.cuda.empty_cache()
 
     # data loader
     print('prepare data loader - %s' % (args.dataloader))
@@ -99,15 +89,26 @@ def main():
     # validate
     print('begin validation')
     num_images = dataloader.get_num_images()
+    average_duration_dict = {}
     average_psnr_dict = {}
     for scale in scale_list:
+        duration_list = []
         psnr_list = []
-        runtime_list = []
+
         for image_index in range(num_images):
             input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index, scale=scale)
 
-            runtime, output_image = _upscale(model, input_image)
-            runtime_list.append(runtime)
+            start_time = time.perf_counter()
+            if (args.chop_forward):
+                output_image = image_utils.upscale_with_chop_forward(model=model, input_image=input_image, scale=scale,
+                                                                     overlap_size=args.chop_overlap_size)
+            else:
+                output_image = model.upscale(input_list=[input_image], scale=scale)[0]
+            end_time = time.perf_counter()
+
+            duration = end_time - start_time
+            duration_list.append(duration)
+
             if (args.save_path is not None):
                 os.makedirs(os.path.join(args.save_path, 'x%d' % (scale)), exist_ok=True)
                 output_image_path = os.path.join(args.save_path, 'x%d' % (scale), image_name + '.png')
@@ -121,14 +122,13 @@ def main():
             psnr = _image_psnr(output_image=output_image, truth_image=truth_image)
 
             psnr_list.append(psnr)
-            print('x%d, %d/%d, runtime=%.3fs, psnr=%.2f' % (scale, image_index + 1, num_images, runtime, psnr))
+            print('x%d, %d/%d, psnr=%.2f, duration=%.4f' % (scale, image_index + 1, num_images, psnr, duration))
 
-        average_runtime = np.mean(runtime_list)
         average_psnr = np.mean(psnr_list)
         average_psnr_dict[scale] = average_psnr
-        num_param = sum(map(lambda x: x.numel(), model.model.parameters()))
-        print('x%d, average runtime = %.3fs, average psnr=%.2f' % (scale, average_runtime, average_psnr))
-        print('number of parameters = %d' % num_param)
+        average_duration = np.mean(duration_list)
+        average_duration_dict[scale] = average_duration
+        print('x%d, psnr=%.2f, duration=%.4f' % (scale, average_psnr, average_duration))
 
     # finalize
     print('finished')
