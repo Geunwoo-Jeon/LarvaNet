@@ -69,6 +69,9 @@ class MAMNet(BaseModel):
   def restore(self, ckpt_path, target=None):
     self.model.load_state_dict(torch.load(ckpt_path, map_location=self.device))
   
+  def get_model(self):
+    return self.model
+  
   def get_next_train_scale(self):
     scale = self.scale_list[np.random.randint(len(self.scale_list))]
     return scale
