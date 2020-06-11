@@ -19,7 +19,7 @@ def _fit_truth_image_size(output_image, truth_image):
   return truth_image[:, 0:output_image.shape[1], 0:output_image.shape[2]]
 
 def _image_psnr(output_image, truth_image):
-  diff = truth_image - output_image
+  diff = np.float32(truth_image) - np.float32(output_image)
   mse = np.mean(np.power(diff, 2))
   psnr = 10.0 * np.log10(255.0 ** 2 / mse)
   return psnr
