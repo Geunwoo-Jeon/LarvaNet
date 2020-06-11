@@ -229,6 +229,7 @@ class EBRNModule(nn.Module):
             sr = self.convs[i](sr)
             out.append(sr)
         x = self.tail(torch.cat(out, dim = 1))
+        x = self.add_mean(x)
         return x
 
 # from torchstat import stat
