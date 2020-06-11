@@ -1,5 +1,5 @@
 prepare data loader - div2k_loader
 data: 100 images are prepared (caching disabled)
-prepare model - edsr
+prepare model - edsr_128
 restored the model
 begin validation
