@@ -12,8 +12,8 @@ import numpy as np
 import cv2 as cv
 
 
-def _clip_image(image):
-  return np.clip(np.round(image), a_min=0, a_max=255)
+def _image_to_uint8(image):
+  return np.clip(np.round(image), a_min=0, a_max=255).astype(np.uint8)
 
 def _fit_truth_image_size(output_image, truth_image):
   return truth_image[:, 0:output_image.shape[1], 0:output_image.shape[2]]
@@ -100,13 +100,13 @@ def main():
       duration = end_time - start_time
       duration_list.append(duration)
 
+      truth_image = _image_to_uint8(truth_image)
+      output_image = _image_to_uint8(output_image)
+
       if (args.save_path is not None):
         os.makedirs(os.path.join(args.save_path, 'x%d' % (scale)), exist_ok=True)
         output_image_path = os.path.join(args.save_path, 'x%d' % (scale), image_name+'.png')
         _save_image(output_image, output_image_path)
-
-      truth_image = _clip_image(truth_image)
-      output_image = _clip_image(output_image)
 
       truth_image = _fit_truth_image_size(output_image=output_image, truth_image=truth_image)
 
