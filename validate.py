@@ -18,8 +18,10 @@ def _image_to_uint8(image):
 def _fit_truth_image_size(output_image, truth_image):
   return truth_image[:, 0:output_image.shape[1], 0:output_image.shape[2]]
 
-def _image_psnr(output_image, truth_image):
+def _image_psnr(output_image, truth_image, scale):
+  shave = scale + 6
   diff = np.float32(truth_image) - np.float32(output_image)
+  diff = diff[:, shave:-shave, shave:-shave]
   mse = np.mean(np.power(diff, 2))
   psnr = 10.0 * np.log10(255.0 ** 2 / mse)
   return psnr
@@ -110,7 +112,7 @@ def main():
 
       truth_image = _fit_truth_image_size(output_image=output_image, truth_image=truth_image)
 
-      psnr = _image_psnr(output_image=output_image, truth_image=truth_image)
+      psnr = _image_psnr(output_image=output_image, truth_image=truth_image, scale=scale)
 
       psnr_list.append(psnr)
       print('x%d, %d/%d, psnr=%.2f, duration=%.4f' % (scale, image_index+1, num_images, psnr, duration))
