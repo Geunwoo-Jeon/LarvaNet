@@ -106,7 +106,6 @@ def main():
       if (args.save_path is not None):
         os.makedirs(os.path.join(args.save_path, 'x%d' % (scale)), exist_ok=True)
         output_image_path = os.path.join(args.save_path, 'x%d' % (scale), image_name+'.png')
-        print(output_image.shape)
         _save_image(output_image, output_image_path)
 
       truth_image = _fit_truth_image_size(output_image=output_image, truth_image=truth_image)
