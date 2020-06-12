@@ -35,6 +35,8 @@ class EDSR(BaseModel):
     parser.add_argument('--edsr_learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
     parser.add_argument('--edsr_learning_rate_decay_steps', type=int, default=200000,
                         help='The number of training steps to perform learning rate decay.')
+    parser.add_argument('--edsr_data_augmented', type=bool, default=False,
+                        help='If data augmentation used, you should set it True.')
 
     self.args, remaining_args = parser.parse_known_args(args=args)
     return copy.deepcopy(self.args), remaining_args
@@ -61,8 +63,7 @@ class EDSR(BaseModel):
         filter(lambda p: p.requires_grad, self.model.parameters()),
         lr=self._get_learning_rate()
       )
-      self.loss_fn_l1 = nn.L1Loss()
-      self.loss_fn_ms_ssim = Loss(device=self.device, width=self.args.edsr_train_patch_size * self.scale)
+      self.loss_fn = Loss(device=self.device, width=self.args.edsr_train_patch_size * self.scale)
 
     # configure device
     self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -84,15 +85,28 @@ class EDSR(BaseModel):
 
   def train_step(self, input_list, scale, truth_list, summary=None):
     # numpy to torch
-    input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
     truth_tensor = torch.tensor(truth_list, dtype=torch.float32, device=self.device)
-    truth_bicubic_tensor = F.interpolate(truth_tensor, scale_factor=1/scale, mode='bicubic', align_corners=False)
+
+    if(self.args.edsr_data_augmented == False):
+      input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
+    else:
+      random=np.random.randint(4)
+
+      if(random==0):
+        input_tensor = F.interpolate(truth_tensor, scale_factor=1 / 4, mode='bicubic')
+
+      elif(random==1):
+        input_tensor = F.interpolate(truth_tensor, scale_factor=1 / 4, mode='bilinear')
+
+      elif(random==2):
+        input_tensor = F.interpolate(truth_tensor, scale_factor=1 / 4)
+
+      else:
+        input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
 
     # get SR and calculate loss
-    output_tensor_1, output_tensor_2 = self.model(input_tensor)
-    loss_1 = self.loss_fn_l1(output_tensor_1, truth_bicubic_tensor)
-    loss_2 = self.loss_fn_ms_ssim(output_tensor_2, truth_tensor)
-    loss = 0.5*(loss_1+loss_2)
+    output_tensor = self.model(input_tensor)
+    loss = self.loss_fn(output_tensor, truth_tensor)
 
     # adjust learning rate
     lr = self._get_learning_rate()
@@ -112,12 +126,11 @@ class EDSR(BaseModel):
       summary.add_scalar('loss', loss, self.global_step)
       summary.add_scalar('lr', lr, self.global_step)
 
-      output_tensor_uint8_1 = output_tensor_1.clamp(0, 255).byte()
-      output_tensor_uint8_2 = output_tensor_2.clamp(0, 255).byte()
+      output_tensor_uint8 = output_tensor.clamp(0, 255).byte()
+
       for i in range(min(4, len(input_list))):
         summary.add_image('input/%d' % i, input_list[i], self.global_step)
-        summary.add_image('output_1/%d' % i, output_tensor_uint8_1[i, :, :, :], self.global_step)
-        summary.add_image('output_2/%d' % i, output_tensor_uint8_2[i, :, :, :], self.global_step)
+        summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.global_step)
         summary.add_image('truth/%d' % i, truth_list[i], self.global_step)
 
     return loss.item()
@@ -127,10 +140,10 @@ class EDSR(BaseModel):
     input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
 
     # get SR
-    output_tensor_1, output_tensor_2 = self.model(input_tensor)
+    output_tensor = self.model(input_tensor)
 
     # finalize
-    return output_tensor_2.detach().cpu().numpy()
+    return output_tensor.detach().cpu().numpy()
 
   def _get_learning_rate(self):
     return self.args.edsr_learning_rate * (
@@ -147,14 +160,17 @@ class Loss(nn.Module):
     gaussian = np.outer(gaussian, gaussian.reshape((width, 1)))	# extend to 2D
     gaussian = gaussian/np.sum(gaussian)								# normailization
     gaussian = np.reshape(gaussian, (1, 1, width, width)) 	# reshape to 4D
+    gaussian = np.tile(gaussian, (3, 1, 1, 1))
     self.gaussian = torch.FloatTensor(gaussian).to(self.device)
 
   def forward(self, output_tensor, truth_tensor):
     ms_ssim_loss = 1 - ms_ssim(output_tensor, truth_tensor, data_range=255, size_average=True)
 
     l1_loss = torch.abs(truth_tensor - output_tensor)
-    l1_loss_filtered = torch.mul(l1_loss, self.gaussian)
+    #l1_loss_filtered = torch.mul(l1_loss, self.gaussian)
     l1_loss_filtered = F.conv2d(input=l1_loss, weight=self.gaussian, groups=3)
+
+    l1_loss_filtered = torch.mean(l1_loss_filtered)
 
     return 0.16*torch.mean(ms_ssim_loss)+0.84*l1_loss_filtered
 
@@ -214,40 +230,30 @@ class EDSRModule(nn.Module):
     self.mean_shift = MeanShift([114.4, 111.5, 103.0], sign=1.0)
     self.first_conv = nn.Conv2d(in_channels=3, out_channels=args.edsr_conv_features, kernel_size=3, stride=1, padding=1)
 
-    res_block_layers_1 = []
-    res_block_layers_2 = []
+    res_block_layers = []
     for i in range(args.edsr_res_blocks):
-      res_block_layers_1.append(ResidualBlock(num_channels=args.edsr_conv_features, weight=args.edsr_res_weight))
-      res_block_layers_2.append(ResidualBlock(num_channels=args.edsr_conv_features, weight=args.edsr_res_weight))
+      res_block_layers.append(ResidualBlock(num_channels=args.edsr_conv_features, weight=args.edsr_res_weight))
 
-    self.res_blocks1 = nn.Sequential(*res_block_layers_1)
-    self.res_blocks2 = nn.Sequential(*res_block_layers_2)
+    self.res_blocks = nn.Sequential(*res_block_layers)
     self.after_res_conv = nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=args.edsr_conv_features,
                                     kernel_size=3, stride=1, padding=1)
 
     self.upsample = UpsampleBlock(num_channels=args.edsr_conv_features, scale=scale)
-    self.final_conv1 = nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=3, kernel_size=3, stride=1, padding=1)
-    self.final_conv2 = nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=3, kernel_size=3, stride=1, padding=1)
+    self.final_conv = nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=3, kernel_size=3, stride=1, padding=1)
 
     self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
 
   def forward(self, x):
-      x = self.mean_shift(x)
-      x = self.first_conv(x)
-      tmp = self.res_blocks1(x)
+    x = self.mean_shift(x)
+    x = self.first_conv(x)
 
-      #route 1
-      res1 = torch.add(x, tmp)
-      res1 = self.final_conv1(res1)
-      res1 = self.mean_inverse_shift(res1)
+    res = self.res_blocks(x)
+    res = self.after_res_conv(res)
+    x = torch.add(x, res)
 
-      #route 2
-      res2 = self.res_blocks2(tmp)
-      res2 = self.after_res_conv(res2)
-      res2 = torch.add(x, res2)
-      res2 = self.upsample(res2)
-      res2 = self.final_conv2(res2)
-      res2 = self.mean_inverse_shift(res2)
+    x = self.upsample(x)
+    x = self.final_conv(x)
+    x = self.mean_inverse_shift(x)
 
-      return res1, res2
+    return x
 

@@ -1,6 +1,7 @@
 import argparse
 import copy
 import os
+import torch.nn.functional as F
 
 import numpy as np
 import cv2 as cv
@@ -82,6 +83,7 @@ class DIV2KLoader(BaseLoader):
     truth_y = input_y * scale
     input_patch = input_image[:, input_y:(input_y+input_patch_size), input_x:(input_x+input_patch_size)]
     truth_patch = truth_image[:, truth_y:(truth_y+truth_patch_size), truth_x:(truth_x+truth_patch_size)]
+
 
     # randomly rotate
     rot90_k = np.random.randint(4)+1
