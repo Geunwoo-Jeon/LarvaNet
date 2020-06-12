@@ -166,14 +166,14 @@ class BRM(nn.Module):
   
   def forward(self, x):
     up = self.up_block(x)
-    up = self.sr_flow(up)
+    ox = self.sr_flow(up)
 
     if self.back_project:
       down = self.down_block(up)
       diff = x - down
       diff += self.bp_flow(diff)
-      return diff, up
-    return up
+      return diff, ox
+    return ox
 
 
 
