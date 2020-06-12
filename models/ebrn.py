@@ -176,22 +176,6 @@ class BRM(nn.Module):
     return ox
 
 
-
-class UpsampleBlock(nn.Module):
-  def __init__(self, num_channels, out_channels, scale):
-    super(UpsampleBlock, self).__init__()
-
-    layers = []
-    layers.append(nn.Conv2d(in_channels=num_channels, out_channels=out_channels*(scale**2), kernel_size=3, stride=1, padding=1))
-    layers.append(nn.PixelShuffle(scale))
-    self.body = nn.Sequential(*layers)
-  
-  def forward(self, x):
-    output = self.body(x)
-    return output
-
-
-
 class EBRNModule(nn.Module):
   def __init__(self, args, scale):
     super(EBRNModule, self).__init__()
