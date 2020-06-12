@@ -140,7 +140,7 @@ class BRM(nn.Module):
 
         self.body = nn.Sequential(
             nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(negative_slope=0.1, inplace=True),
+            nn.LeakyReLU(negative_slope=0.05, inplace=True),
             nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=3, stride=1, padding=1)
         )
 
@@ -153,28 +153,17 @@ class BRM(nn.Module):
 
 
 class UpsampleBlock(nn.Module):
-    def __init__(self, num_channels, scale):
-        super(UpsampleBlock, self).__init__()
+  def __init__(self, num_channels, out_channels, scale):
+    super(UpsampleBlock, self).__init__()
 
-        layers = []
-        if scale == 2 or scale == 4 or scale == 8:
-            for _ in range(int(math.log(scale, 2))):
-                layers.append(
-                    nn.Conv2d(in_channels=num_channels, out_channels=4 * num_channels, kernel_size=3, stride=1,
-                              padding=1))
-                layers.append(nn.PixelShuffle(2))
-                layers.append(nn.LeakyReLU(negative_slope=0.1, inplace=True))
-        elif scale == 3:
-            layers.append(
-                nn.Conv2d(in_channels=num_channels, out_channels=9 * num_channels, kernel_size=3, stride=1, padding=1))
-            layers.append(nn.PixelShuffle(3))
-            layers.append(nn.LeakyReLU(negative_slope=0.1, inplace=True))
-
-        self.body = nn.Sequential(*layers)
-
-    def forward(self, x):
-        output = self.body(x)
-        return output
+    layers = []
+    layers.append(nn.Conv2d(in_channels=num_channels, out_channels=out_channels*(scale**2), kernel_size=3, stride=1, padding=1))
+    layers.append(nn.PixelShuffle(scale))
+    self.body = nn.Sequential(*layers)
+  
+  def forward(self, x):
+    output = self.body(x)
+    return output
 
 
 class EBRNModule(nn.Module):
@@ -188,18 +177,7 @@ class EBRNModule(nn.Module):
         self.num_brms = args.num_brms
 
         self.mean_shift = MeanShift([114.4, 111.5, 103.0], sign=1.0)
-
-        self.feature_extract = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=num_filters * 4, kernel_size=kernel_size, stride=stride,
-                      padding=padding),
-            nn.PReLU(num_filters * 4),
-            nn.Conv2d(in_channels=num_filters * 4, out_channels=num_filters, kernel_size=kernel_size, stride=stride,
-                      padding=padding),
-            nn.PReLU(num_filters),
-            nn.Conv2d(in_channels=num_filters, out_channels=num_filters, kernel_size=kernel_size, stride=stride,
-                      padding=padding),
-            nn.PReLU(num_filters),
-        )
+        self.first_conv = nn.Conv2d(in_channels=3, out_channels=num_filters, kernel_size=kernel_size, stride=stride, padding=padding)
 
         self.brms = nn.ModuleList()
         for _ in range(self.num_brms - 1):
@@ -212,16 +190,12 @@ class EBRNModule(nn.Module):
                 nn.Conv2d(in_channels=num_filters, out_channels=num_filters, kernel_size=kernel_size, stride=stride,
                           padding=padding))
 
-        self.upsample = UpsampleBlock(num_channels=num_filters * self.num_brms, scale=scale)
-
-        self.recon_layer = nn.Conv2d(in_channels=num_filters * self.num_brms, out_channels=num_colors,
-                                     kernel_size=kernel_size, stride=stride, padding=padding)
-
+        self.upsample = UpsampleBlock(num_channels=num_filters * self.num_brms, out_channels=3, scale=scale)
         self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
 
     def forward(self, x):
         x = self.mean_shift(x)
-        x = self.feature_extract(x)
+        x = self.first_conv(x)
 
         out_list = []
         out_prime_list = []
@@ -237,7 +211,6 @@ class EBRNModule(nn.Module):
             out_prime_list.append(out_prime)
 
         x = self.upsample(torch.cat(out_prime_list, dim=1))
-        x = self.recon_layer(x)
         x = self.mean_inverse_shift(x)
 
         return x
