@@ -212,7 +212,7 @@ class EBRNModule(nn.Module):
                 nn.Conv2d(in_channels=num_filters, out_channels=num_filters, kernel_size=kernel_size, stride=stride,
                           padding=padding))
 
-        self.upsample = UpsampleBlock(num_channels=num_filters, scale=scale)
+        self.upsample = UpsampleBlock(num_channels=num_filters * self.num_brms, scale=scale)
 
         self.recon_layer = nn.Conv2d(in_channels=num_filters * self.num_brms, out_channels=num_colors,
                                      kernel_size=kernel_size, stride=stride, padding=padding)
@@ -236,7 +236,8 @@ class EBRNModule(nn.Module):
             out_prime = self.fusion_layers[i](out + out_list[-(i + 1)])
             out_prime_list.append(out_prime)
 
-        x = self.recon_layer(torch.cat(out_prime_list, dim=1))
+        x = self.upsample(torch.cat(out_prime_list, dim=1))
+        x = self.recon_layer(x)
         x = self.mean_inverse_shift(x)
 
         return x
