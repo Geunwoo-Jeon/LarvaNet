@@ -10,7 +10,6 @@ import torch.nn as nn
 import torch.optim as optim
 
 from models.base import BaseModel
-import pytorch_ssim
 
 
 def create_model():

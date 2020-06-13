@@ -15,30 +15,10 @@ from models.base import BaseModel
 
 
 def create_model():
-    return MSRR()
+    return REGO()
 
 
-def initialize_weights(net_l, scale=1):
-    if not isinstance(net_l, list):
-        net_l = [net_l]
-    for net in net_l:
-        for m in net.modules():
-            if isinstance(m, nn.Conv2d):
-                init.kaiming_normal_(m.weight, a=0, mode='fan_in')
-                m.weight.data *= scale  # for residual block
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.Linear):
-                init.kaiming_normal_(m.weight, a=0, mode='fan_in')
-                m.weight.data *= scale
-                if m.bias is not None:
-                    m.bias.data.zero_()
-            elif isinstance(m, nn.BatchNorm2d):
-                init.constant_(m.weight, 1)
-                init.constant_(m.bias.data, 0.0)
-
-
-class MSRR(BaseModel):
+class REGO(BaseModel):
     def __init__(self):
         super().__init__()
 
@@ -46,7 +26,7 @@ class MSRR(BaseModel):
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--num_filters', type=int, default=64, help='The number of convolutional features.')
-        parser.add_argument('--num_blocks', type=int, default=16, help='The number of residual blocks.')
+        parser.add_argument('--len_side', type=int, default=7, help='The number of residual blocks.')
         parser.add_argument('--res_weight', type=float, default=1.0, help='The scaling factor.')
         parser.add_argument('--learning_rate', type=float, default=1e-4, help='Initial learning rate.')
         parser.add_argument('--learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
@@ -69,7 +49,7 @@ class MSRR(BaseModel):
         self.scale = self.scale_list[0]
 
         # PyTorch model
-        self.model = MSRRModule(args=self.args, scale=self.scale)
+        self.model = REGOModule(args=self.args, scale=self.scale)
         if (is_training):
             self.optim = optim.Adam(
                 filter(lambda p: p.requires_grad, self.model.parameters()),
@@ -87,7 +67,7 @@ class MSRR(BaseModel):
 
     def restore(self, ckpt_path, target=None):
         self.model.load_state_dict(torch.load(ckpt_path, map_location=self.device))
-  
+
     def get_model(self):
         return self.model
 
@@ -145,83 +125,87 @@ class MSRR(BaseModel):
                 self.global_step // self.args.learning_rate_decay_steps))
 
 
-class ResidualBlock(nn.Module):
-    def __init__(self, num_channels, weight=1.0):
-        super(ResidualBlock, self).__init__()
+class MeanShift(nn.Conv2d):
+    def __init__(self, rgb_mean, sign):
+        super(MeanShift, self).__init__(in_channels=3, out_channels=3, kernel_size=1)
+        self.weight_data = torch.eye(3).view(3, 3, 1, 1)
+        self.bias_data = sign * torch.Tensor(rgb_mean)
 
+        for params in self.parameters():
+            params.requires_grad = False
+
+
+class RESBlock(nn.Module):
+    def __init__(self, num_channels, weight=1.0):
+        super(RESBlock, self).__init__()
+        self.weight = weight
         self.body = nn.Sequential(
             nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
+            nn.LeakyReLU(negative_slope=0.1, inplace=True),
             nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=3, stride=1, padding=1)
         )
-        # initialization
-        initialize_weights(self.body, 0.1)
 
     def forward(self, x):
-        res = self.body(x)
+        res = self.body(x).mul(self.weight)
         output = torch.add(x, res)
-        return output
+        return res, output
 
 
 class UpsampleBlock(nn.Module):
-    def __init__(self, num_channels, scale):
+    def __init__(self, num_channels, out_channels, scale):
         super(UpsampleBlock, self).__init__()
 
         layers = []
-        if scale == 2 or scale == 4 or scale == 8:
-            for _ in range(int(math.log(scale, 2))):
-                layers.append(
-                    nn.Conv2d(in_channels=num_channels, out_channels=4 * num_channels, kernel_size=3, stride=1,
-                              padding=1))
-                layers.append(nn.PixelShuffle(2))
-                layers.append(nn.LeakyReLU(negative_slope=0.1, inplace=True))
-        elif scale == 3:
-            layers.append(
-                nn.Conv2d(in_channels=num_channels, out_channels=9 * num_channels, kernel_size=3, stride=1, padding=1))
-            layers.append(nn.PixelShuffle(3))
-            layers.append(nn.LeakyReLU(negative_slope=0.1, inplace=True))
-
+        layers.append(
+            nn.Conv2d(in_channels=num_channels, out_channels=out_channels * (scale ** 2), kernel_size=3, stride=1,
+                      padding=1))
+        layers.append(nn.PixelShuffle(scale))
         self.body = nn.Sequential(*layers)
-        initialize_weights(self.body, 0.1)
 
     def forward(self, x):
         output = self.body(x)
         return output
 
 
-class MSRRModule(nn.Module):
+class REGOModule(nn.Module):
     def __init__(self, args, scale):
-        super(MSRRModule, self).__init__()
-
+        super(REGOModule, self).__init__()
         self.mean_shift = MeanShift([114.4, 111.5, 103.0], sign=1.0)
-        self.first_conv = nn.Conv2d(in_channels=3, out_channels=args.num_filters, kernel_size=3, stride=1,
-                                    padding=1)
-
-        res_block_layers = []
-        for i in range(args.num_blocks):
-            res_block_layers.append(ResidualBlock(num_channels=args.num_filters, weight=args.res_weight))
-        self.res_blocks = nn.Sequential(*res_block_layers)
-        self.upsample = UpsampleBlock(num_channels=args.num_filters, scale=scale)
-        self.HR_conv = nn.Conv2d(in_channels=args.num_filters, out_channels=args.num_filters,
-                                        kernel_size=3, stride=1, padding=1)
-        self.final_conv = nn.Conv2d(in_channels=args.num_filters, out_channels=3, kernel_size=3, stride=1,
-                                    padding=1)
-        self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
-
-        # activation function
-        self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
-
-        # initialization
-        initialize_weights([self.first_conv, self.HR_conv, self.final_conv], 0.1)
+        self.feature_extraction = nn.Conv2d(in_channels=3, out_channels=args.num_filters, kernel_size=3, stride=1, padding=1)
+        self.RESB_bricks = []
+        self.len_side = args.len_side
+        for i in range(self.len_side):
+            self.RESB_bricks.append([])
+            for j in range(self.len_side - i):
+                self.RESB_bricks[i].append(RESBlock(num_channels=args.num_filters, weight=args.res_weight))
+        self.SRrecon = UpsampleBlock(num_channels=(self.len_side+1) * args.num_filters, out_channels=3, scale=scale)
 
     def forward(self, x):
-        out = self.lrelu(self.first_conv(x))
+        fea = self.feature_extraction(self.mean_shift(x))
+        err, fea = self.RESB_bricks[0][0](fea)
+        err_in = [err]
+        fea_in = [fea]
+        for i in range(1, self.len_side):
+            err_out = []
+            fea_out = []
 
-        out = self.res_blocks(out)
+            err, fea = self.RESB_bricks[i][0](err_in[0])
+            err_out.append(err)
+            fea_out.append(fea)
 
-        out = self.upsample(out)
-        out = self.final_conv(self.lrelu(self.HR_conv(out)))
-        base = F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=False)
-        out += base
+            for j in range(1, i):
+                err, fea = self.RESB_bricks[i - j][j](fea_in[j - 1] + err_in[j])
+                err_out.append(err)
+                fea_out.append(fea)
 
-        return out
+            fea, err = self.RESB_bricks[0][i](fea_in[i - 1])
+            err_out.append(err)
+            fea_out.append(fea)
+
+            fea_in = fea_out
+            err_in = err_out
+
+        sr = self.SRrecon(
+            torch.cat((err_out[0], *[err + fea for err, fea in zip(err_out[1:], fea_out[:-1])], fea_out[-1]), dim=1))
+        sr += F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=False)
+        return x
