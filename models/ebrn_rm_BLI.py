@@ -141,6 +141,15 @@ class BRM(nn.Module):
             return res, output
         return output
 
+class MeanShift(nn.Conv2d):
+    def __init__(self, rgb_mean, sign):
+        super(MeanShift, self).__init__(in_channels=3, out_channels=3, kernel_size=1)
+        self.weight_data = torch.eye(3).view(3, 3, 1, 1)
+        self.bias_data = sign * torch.Tensor(rgb_mean)
+
+        for params in self.parameters():
+            params.requires_grad = False
+
 
 class UpsampleBlock(nn.Module):
   def __init__(self, num_channels, out_channels, scale):
@@ -164,6 +173,8 @@ class EBRNModule(nn.Module):
         stride = 1
         padding = 1
         self.num_brms = args.num_brms
+
+        self.mean_shift = MeanShift([114.4, 111.5, 103.0], sign=1.0)
         self.first_conv = nn.Conv2d(in_channels=3, out_channels=num_filters, kernel_size=kernel_size, stride=stride, padding=padding)
 
         self.brms = nn.ModuleList()
