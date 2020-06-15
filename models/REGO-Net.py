@@ -2,6 +2,7 @@ import argparse
 import copy
 import math
 import os
+import sys
 
 import numpy as np
 
@@ -26,7 +27,7 @@ class REGO(BaseModel):
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--num_filters', type=int, default=64, help='The number of convolutional features.')
-        parser.add_argument('--len_side', type=int, default=8, help='The number of residual blocks.')
+        parser.add_argument('--len_side', type=int, default=6, help='The number of residual blocks.')
         parser.add_argument('--res_weight', type=float, default=1.0, help='The scaling factor.')
         parser.add_argument('--learning_rate', type=float, default=1e-4, help='Initial learning rate.')
         parser.add_argument('--learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
@@ -60,7 +61,7 @@ class REGO(BaseModel):
         # configure device
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = self.model.to(self.device)
-
+        print(next(self.model.parameters()).device)
     def save(self, base_path):
         save_path = os.path.join(base_path, 'model_%d.pth' % (self.global_step))
         torch.save(self.model.state_dict(), save_path)
@@ -172,33 +173,35 @@ class REGOModule(nn.Module):
         super(REGOModule, self).__init__()
         self.mean_shift = MeanShift([114.4, 111.5, 103.0], sign=1.0)
         self.feature_extraction = nn.Conv2d(in_channels=3, out_channels=args.num_filters, kernel_size=3, stride=1, padding=1)
-        self.RESB_bricks = []
         self.len_side = args.len_side
         for i in range(self.len_side):
-            self.RESB_bricks.append([])
             for j in range(self.len_side - i):
-                self.RESB_bricks[i].append(RESBlock(num_channels=args.num_filters, weight=args.res_weight))
+                setattr(self, f'RESB_{i}_{j}', RESBlock(num_channels=args.num_filters, weight=args.res_weight))
         self.SRrecon = UpsampleBlock(num_channels=(self.len_side+1) * args.num_filters, out_channels=3, scale=scale)
 
     def forward(self, x):
         fea = self.feature_extraction(self.mean_shift(x))
-        err, fea = self.RESB_bricks[0][0](fea)
+        # err, fea = self.RESB_bricks[0][0](fea)
+        err, fea = getattr(self, 'RESB_0_0')(fea)
         err_in = [err]
         fea_in = [fea]
         for i in range(1, self.len_side):
             err_out = []
             fea_out = []
 
-            err, fea = self.RESB_bricks[i][0](err_in[0])
+            # err, fea = self.RESB_bricks[i][0](err_in[0])
+            err, fea = getattr(self, f'RESB_{i}_0')(err_in[0])
             err_out.append(err)
             fea_out.append(fea)
 
             for j in range(1, i):
-                err, fea = self.RESB_bricks[i - j][j](fea_in[j - 1] + err_in[j])
+                # err, fea = self.RESB_bricks[i - j][j](fea_in[j - 1] + err_in[j])
+                err, fea = getattr(self, f'RESB_{i-j}_{j}')(fea_in[j - 1] + err_in[j])
                 err_out.append(err)
                 fea_out.append(fea)
 
-            fea, err = self.RESB_bricks[0][i](fea_in[i - 1])
+            # fea, err = self.RESB_bricks[0][i](fea_in[i - 1])
+            err, fea = getattr(self, f'RESB_0_{i}')(fea_in[i - 1])
             err_out.append(err)
             fea_out.append(fea)
 
@@ -208,4 +211,4 @@ class REGOModule(nn.Module):
         sr = self.SRrecon(
             torch.cat((err_out[0], *[err + fea for err, fea in zip(err_out[1:], fea_out[:-1])], fea_out[-1]), dim=1))
         sr += F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=False)
-        return x
+        return sr
