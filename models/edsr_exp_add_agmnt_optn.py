@@ -12,7 +12,7 @@ from pytorch_msssim import ssim, ms_ssim, SSIM, MS_SSIM
 
 from models.base import BaseModel
 import torch.nn.functional as F
-from augments import apply_augment
+from augments import *
 
 
 def create_model():
@@ -29,7 +29,7 @@ class EDSR(BaseModel):
         parser.add_argument('--edsr_train_patch_size', type=int, default=48,
                             help='Size of the input patch during training.')
         parser.add_argument('--edsr_conv_features', type=int, default=64, help='The number of convolutional features.')
-        parser.add_argument('--edsr_res_blocks', type=int, default=8, help='The number of residual blocks.')
+        parser.add_argument('--edsr_res_blocks', type=int, default=16, help='The number of residual blocks.')
         parser.add_argument('--edsr_res_weight', type=float, default=1.0, help='The scaling factor.')
 
         parser.add_argument('--edsr_learning_rate', type=float, default=1e-4, help='Initial learning rate.')
@@ -85,38 +85,47 @@ class EDSR(BaseModel):
         return scale
 
     def train_step(self, input_list, scale, truth_list, summary=None):
+        agmnt_input_list=[]
+
         # numpy to torch
         input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
-
         truth_tensor = torch.tensor(truth_list, dtype=torch.float32, device=self.device)
 
+        if(self.args.edsr_data_augmented):
+            # image augmentation
+            # blend, mixup, cutout, cutmix, cutmixup, cutblur, rgb
+            random = np.random.randint(6)
+            if(self.global_step%100 == 0):
+                print(random)
 
-        # image augmentation
-        # blend, mixup, cutout, cutmix, cutmixup, cutblur, rgb
-        random = np.random.randint(10)
-        if (random >= 0 and random <= 3):
-          apply_augment(input_tensor, truth_tensor, 'cutblur', prob=1.0, alpha=0.7)
+            #if (random >= 0 and random <= 3):
+            #  apply_augment(input_tensor, truth_tensor, 'cutblur', prob=1.0, alpha=0.7)
 
-        elif (random == 4):
-          apply_augment(input_tensor, truth_tensor, 'blend', prob=1.0, alpha=0.6)
+            if (random == 0):
+              truth_tensor, input_tensor = blend(truth_tensor, input_tensor, prob=1.0, alpha=0.6)
 
-        elif (random == 5):
-          apply_augment(input_tensor, truth_tensor, 'mixup', prob=1.0, alpha=1.2)
+            elif (random == 1):
+              truth_tensor, input_tensor = mixup(truth_tensor, input_tensor, prob=1.0, alpha=1.2)
 
-        elif (random == 6):
-          apply_augment(input_tensor, truth_tensor, 'cutout', prob=1.0, alpha=0.001)
+            elif (random == 2):
+              truth_tensor, input_tensor, mask, _ = cutout(truth_tensor, input_tensor, prob=1.0, alpha=0.001)
 
-        elif (random == 7):
-          apply_augment(input_tensor, truth_tensor, 'cutmix', prob=1.0, alpha=0.7)
+            elif (random == 3):
+              truth_tensor, input_tensor = cutmix(truth_tensor, input_tensor, prob=1.0, alpha=0.7)
 
-        elif (random == 8):
-          apply_augment(input_tensor, truth_tensor, 'cutmixup', prob=1.0, alpha=0.7, aux_prob=1.0, aux_alpha=1.2)
+            elif (random == 4):
+              truth_tensor, input_tensor = cutmixup(truth_tensor, input_tensor, mixup_prob=1.0, mixup_alpha=1.2,
+                                                    cutmix_prob=1.0, cutmix_alpha=0.7)
 
-        else:
-          apply_augment(input_tensor, truth_tensor, 'rgb', prob=1.0, alpha=1.0)
+            else:
+              truth_tensor, input_tensor = rgb(truth_tensor, input_tensor, prob=1.0)
 
+        agmnt_input_list.append(input_tensor)
         # get SR and calculate loss
         output_tensor = self.model(input_tensor)
+
+        if(random==2):
+            output_tensor, truth_tensor = output_tensor * mask, truth_tensor * mask
 
         loss = self.loss_fn(output_tensor, truth_tensor)
 
@@ -139,11 +148,14 @@ class EDSR(BaseModel):
             summary.add_scalar('lr', lr, self.global_step)
 
             output_tensor_uint8 = output_tensor.clamp(0, 255).byte()
+            input_tensor_uint8 = input_tensor.clamp(0, 255).byte()
+            truth_tensor_uint8 = truth_tensor.clamp(0,255).byte()
 
             for i in range(min(4, len(input_list))):
                 summary.add_image('input/%d' % i, input_list[i], self.global_step)
+                summary.add_image('agmnt_input/%d' % i, input_tensor_uint8[i, :, :, :], self.global_step)
                 summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.global_step)
-                summary.add_image('truth/%d' % i, truth_list[i], self.global_step)
+                summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.global_step)
 
         return loss.item()
 
@@ -268,7 +280,7 @@ class EDSRModule(nn.Module):
         res = self.after_res_conv(res)
         x = torch.add(x, res)
 
-        #x = self.upsample(x)
+        x = self.upsample(x)
         x = self.final_conv(x)
         x = self.mean_inverse_shift(x)
 
