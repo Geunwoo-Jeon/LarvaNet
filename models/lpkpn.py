@@ -298,7 +298,8 @@ class LPKPN_Module(nn.Module):
     bilinear_x = F.interpolate(first_x, scale_factor=4, mode='bilinear', align_corners=False)
 
     x = self.pixelconv(x, bilinear_x)
-    
+    x = self.mean_inverse_shift(x)
+
     return x
     
 
