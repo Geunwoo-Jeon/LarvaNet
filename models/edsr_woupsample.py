@@ -11,6 +11,7 @@ import torch.optim as optim
 
 from models.base import BaseModel
 
+# L1 loss, 16 blocks, w.o upsample
 
 def create_model():
   return EDSR()

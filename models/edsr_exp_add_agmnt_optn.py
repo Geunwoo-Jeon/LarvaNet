@@ -14,6 +14,7 @@ from models.base import BaseModel
 import torch.nn.functional as F
 from augments import *
 
+# L1 loss, 16 blocks, data aug(cutmix etc)
 
 def create_model():
     return EDSR()

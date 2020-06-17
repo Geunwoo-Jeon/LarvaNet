@@ -13,6 +13,7 @@ from pytorch_msssim import ssim, ms_ssim, SSIM, MS_SSIM
 from models.base import BaseModel
 import torch.nn.functional as F
 
+# Mixed Loss, block 8, data aug(bilinear, bicubic, nearest)
 
 def create_model():
   return EDSR()
