@@ -27,7 +27,7 @@ class REGO(BaseModel):
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--num_filters', type=int, default=64, help='The number of convolutional features.')
-        parser.add_argument('--len_side', type=int, default=6, help='The number of residual blocks.')
+        parser.add_argument('--len_side', type=int, default=5, help='The number of residual blocks.')
         parser.add_argument('--res_weight', type=float, default=1.0, help='The scaling factor.')
         parser.add_argument('--learning_rate', type=float, default=1e-4, help='Initial learning rate.')
         parser.add_argument('--learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
