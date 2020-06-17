@@ -14,7 +14,6 @@ from pytorch_msssim import ssim, ms_ssim, SSIM, MS_SSIM
 
 
 from models.base import BaseModel
-import pytorch_ssim
 
 # ipkpn with mixed loss
 
@@ -184,22 +183,13 @@ class ResidualBlock(nn.Module):
 
 
 class UpsampleBlock(nn.Module):
-  def __init__(self, num_channels, scale):
+  def __init__(self, scale):
     super(UpsampleBlock, self).__init__()
 
-    layers = []
-    if scale == 2 or scale == 4 or scale == 8:
-      for _ in range(int(math.log(scale, 2))):
-        layers.append(nn.Conv2d(in_channels=num_channels, out_channels=4*num_channels, kernel_size=3, stride=1, padding=1))
-        layers.append(nn.PixelShuffle(2))
-    elif scale == 3:
-        layers.append(nn.Conv2d(in_channels=num_channels, out_channels=9*num_channels, kernel_size=3, stride=1, padding=1))
-        layers.append(nn.PixelShuffle(3))
+    self.shuffle = nn.PixelShuffle(scale)
 
-    self.body = nn.Sequential(*layers)
-  
   def forward(self, x):
-    output = self.body(x)
+    output = self.shuffle(x)
     return output
 
 
@@ -312,11 +302,14 @@ class LPKPN_Module(nn.Module):
     self.res_blocks = nn.Sequential(*res_block_layers)
     self.after_res_conv = nn.Conv2d(in_channels=args.num_filters, out_channels=args.num_filters, kernel_size=3, stride=1, padding=1)
 
-    self.upsample = UpsampleBlock(num_channels=args.num_filters, scale=scale)
+    self.upsample = UpsampleBlock(scale=scale)
+    self.final_conv_1 = nn.Conv2d(in_channels=args.num_filters//16, out_channels=args.num_filters, kernel_size=3, stride=1, padding=1)
+    self.final_conv_2 = nn.Conv2d(in_channels=args.num_filters, out_channels=args.num_filters, kernel_size=3, stride=1, padding=1)
+
     self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
   
   def forward(self, x):
-    x = self.mean_shift(x)
+    # x = self.mean_shift(x)
     first_x = x 
     x = self.first_conv(x)
 
@@ -325,11 +318,13 @@ class LPKPN_Module(nn.Module):
     
     x = torch.add(x, res)
     x = self.upsample(x)
+    x = self.final_conv_1(x)
+    x = self.final_conv_2(x)
 
     bilinear_x = F.interpolate(first_x, scale_factor=4, mode='bilinear', align_corners=False)
 
     x = self.pixelconv(x, bilinear_x)
-    x = self.mean_inverse_shift(x)
+    # x = self.mean_inverse_shift(x)
     
     return x
     
