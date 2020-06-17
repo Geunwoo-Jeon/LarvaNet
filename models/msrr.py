@@ -145,6 +145,16 @@ class MSRR(BaseModel):
                 self.global_step // self.args.learning_rate_decay_steps))
 
 
+class MeanShift(nn.Conv2d):
+  def __init__(self, rgb_mean, sign):
+    super(MeanShift, self).__init__(in_channels=3, out_channels=3, kernel_size=1)
+    self.weight_data = torch.eye(3).view(3, 3, 1, 1)
+    self.bias_data = sign * torch.Tensor(rgb_mean)
+
+    for params in self.parameters():
+      params.requires_grad = False
+          
+
 class ResidualBlock(nn.Module):
     def __init__(self, num_channels, weight=1.0):
         super(ResidualBlock, self).__init__()
