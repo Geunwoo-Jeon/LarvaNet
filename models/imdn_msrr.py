@@ -14,9 +14,9 @@ from models.base import BaseModel
 
 
 def create_model():
-  return IMDN_AIM2019()
+  return IMDN_MSRR()
 
-class IMDN_AIM2019(BaseModel):
+class IMDN_MSRR(BaseModel):
   def __init__(self):
     super().__init__()
 
@@ -45,7 +45,7 @@ class IMDN_AIM2019(BaseModel):
     self.scale = self.scale_list[0]
 
     # PyTorch model
-    self.model = IMDN_AIM2019_Module(args=self.args, scale=self.scale)
+    self.model = IMDN_MSRR_Module(args=self.args, scale=self.scale)
     if (is_training):
       self.optim = optim.Adam(
         filter(lambda p: p.requires_grad, self.model.parameters()),
@@ -191,7 +191,15 @@ class UpsampleBlock(nn.Module):
         layers.append(nn.PixelShuffle(3))
         layers.append(nn.LeakyReLU(negative_slope=0.1, inplace=True))
 
-    self.body = nn.Sequential(*layers)
+
+    self.body = nn.Sequential(
+      nn.Conv2d(in_channels=num_channels, out_channels=4 * out_channels, kernel_size=3, stride=1, padding=1),
+      nn.PixelShuffle(2),
+      nn.LeakyReLU(negative_slope=0.1, inplace=True),
+      nn.Conv2d(in_channels=3, out_channels=4 * out_channels, kernel_size=3, stride=1, padding=1),
+      nn.PixelShuffle(2),
+      nn.LeakyReLU(negative_slope=0.1, inplace=True)
+    ) 
 
   def forward(self, x):
     output = self.body(x)
@@ -199,9 +207,9 @@ class UpsampleBlock(nn.Module):
 
 
 
-class IMDN_AIM2019_Module(nn.Module):
+class IMDN_MSRR_Module(nn.Module):
   def __init__(self, args, scale):
-    super(IMDN_AIM2019_Module, self).__init__()
+    super(IMDN_MSRR_Module, self).__init__()
 
     self.mean_shift = MeanShift([114.4, 111.5, 103.0], sign=1.0)
     self.first_conv = nn.Conv2d(in_channels=3, out_channels=args.num_filters, kernel_size=3, stride=1, padding=1)
@@ -221,21 +229,21 @@ class IMDN_AIM2019_Module(nn.Module):
     self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
   
   def forward(self, x):
-    x = self.mean_shift(x)
-    x = self.first_conv(x)
-    x = self.lrelu(x)
+    tmp = self.mean_shift(x)
+    tmp = self.first_conv(tmp)
+    tmp = self.lrelu(tmp)
 
-    res = self.res_blocks(x)
+    res = self.res_blocks(tmp)
     res = self.after_res_conv(res)
     res = self.lrelu(res)
-    x = torch.add(x, res)
+    tmp = torch.add(tmp, res)
 
-    x = self.upsample(x)
-    x = self.hr_conv2(self.lrelu(self.hr_conv1(x)))
+    tmp = self.upsample(tmp)
+    tmp = self.hr_conv2(self.lrelu(self.hr_conv1(tmp)))
     base = F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=False)
-    x += base 
-    x = self.mean_inverse_shift(x)
+    tmp += base 
+    tmp = self.mean_inverse_shift(tmp)
 
-    return x
+    return tmp
     
 
