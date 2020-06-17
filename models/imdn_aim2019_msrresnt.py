@@ -8,9 +8,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 
 from models.base import BaseModel
-import pytorch_ssim
 
 
 def create_model():
@@ -176,12 +176,23 @@ class IMDBlock(nn.Module):
 class UpsampleBlock(nn.Module):
   def __init__(self, num_channels, out_channels, scale):
     super(UpsampleBlock, self).__init__()
-
-    layers = []
-    layers.append(nn.Conv2d(in_channels=num_channels, out_channels=out_channels*(scale**2), kernel_size=3, stride=1, padding=1))
-    layers.append(nn.PixelShuffle(scale))
-    self.body = nn.Sequential(*layers)
   
+    layers = []
+    if scale == 2 or scale == 4 or scale == 8:
+        for _ in range(int(math.log(scale, 2))):
+            layers.append(
+                nn.Conv2d(in_channels=num_channels, out_channels=4 * out_channels, kernel_size=3, stride=1,
+                          padding=1))
+            layers.append(nn.PixelShuffle(2))
+            layers.append(nn.LeakyReLU(negative_slope=0.1, inplace=True))
+    elif scale == 3:
+        layers.append(
+            nn.Conv2d(in_channels=num_channels, out_channels=9 * out_channels, kernel_size=3, stride=1, padding=1))
+        layers.append(nn.PixelShuffle(3))
+        layers.append(nn.LeakyReLU(negative_slope=0.1, inplace=True))
+
+    self.body = nn.Sequential(*layers)
+
   def forward(self, x):
     output = self.body(x)
     return output
@@ -203,19 +214,26 @@ class IMDN_AIM2019_Module(nn.Module):
 
     self.upsample = UpsampleBlock(num_channels=args.num_filters, out_channels=3, scale=scale)
 
+    self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
 
+    self.hr_conv1 = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, stride=1, padding=1)
+    self.hr_conv2 = nn.Conv2d(in_channels=3, out_channels=3, kernel_size=3, stride=1, padding=1)
     self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
   
   def forward(self, x):
     x = self.mean_shift(x)
     x = self.first_conv(x)
+    x = self.lrelu(x)
 
     res = self.res_blocks(x)
     res = self.after_res_conv(res)
-    
+    res = self.lrelu(res)
     x = torch.add(x, res)
 
     x = self.upsample(x)
+    x = self.hr_conv2(self.lrelu(self.hr_conv1(x)))
+    base = F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=False)
+    x += base 
     x = self.mean_inverse_shift(x)
 
     return x
