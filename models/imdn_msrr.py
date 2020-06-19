@@ -229,7 +229,7 @@ class IMDN_MSRR_Module(nn.Module):
     self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
   
   def forward(self, x):
-    tmp = self.mean_shift(x)
+    # tmp = self.mean_shift(x)
     tmp = self.first_conv(tmp)
     tmp = self.lrelu(tmp)
 
@@ -242,7 +242,7 @@ class IMDN_MSRR_Module(nn.Module):
     tmp = self.hr_conv2(self.lrelu(self.hr_conv1(tmp)))
     base = F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=False)
     tmp += base 
-    tmp = self.mean_inverse_shift(tmp)
+    # tmp = self.mean_inverse_shift(tmp)
 
     return tmp
     
