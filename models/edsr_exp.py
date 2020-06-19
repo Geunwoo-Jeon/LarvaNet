@@ -36,7 +36,7 @@ class EDSR(BaseModel):
     parser.add_argument('--edsr_learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
     parser.add_argument('--edsr_learning_rate_decay_steps', type=int, default=200000,
                         help='The number of training steps to perform learning rate decay.')
-    parser.add_argument('--edsr_data_augmented', type=bool, default=False,
+    parser.add_argument('--edsr_data_augmented', action='store_true',
                         help='If data augmentation used, you should set it True.')
 
     self.args, remaining_args = parser.parse_known_args(args=args)
@@ -87,10 +87,7 @@ class EDSR(BaseModel):
   def train_step(self, input_list, scale, truth_list, summary=None):
     # numpy to torch
     truth_tensor = torch.tensor(truth_list, dtype=torch.float32, device=self.device)
-
-    if(self.args.edsr_data_augmented == False):
-      input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
-    else:
+    if (self.args.edsr_data_augmented):
       random=np.random.randint(4)
 
       if(random==0):
@@ -104,6 +101,8 @@ class EDSR(BaseModel):
 
       else:
         input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
+    else:
+      input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
 
     # get SR and calculate loss
     output_tensor = self.model(input_tensor)
@@ -228,7 +227,10 @@ class EDSRModule(nn.Module):
   def __init__(self, args, scale):
     super(EDSRModule, self).__init__()
 
-    self.mean_shift = MeanShift([114.4, 111.5, 103.0], sign=1.0)
+    # self.mean_shift = MeanShift([114.4, 111.5, 103.0], sign=1.0)
+    self.mean_shift = MeanShift([0.3947*179.0, 0.3006*255.0, 124.7698], sign=1.0)
+
+    # 0.3947 0.3006 124.7698
     self.first_conv = nn.Conv2d(in_channels=3, out_channels=args.edsr_conv_features, kernel_size=3, stride=1, padding=1)
 
     res_block_layers = []
@@ -242,7 +244,7 @@ class EDSRModule(nn.Module):
     self.upsample = UpsampleBlock(num_channels=args.edsr_conv_features, scale=scale)
     self.final_conv = nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=3, kernel_size=3, stride=1, padding=1)
 
-    self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
+    self.mean_inverse_shift = MeanShift([0.3947*179.0, 0.3006*255.0, 124.7698], sign=-1.0)
 
   def forward(self, x):
     x = self.mean_shift(x)

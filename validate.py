@@ -24,9 +24,12 @@ def _image_psnr(output_image, truth_image):
   psnr = 10.0 * np.log10(255.0 ** 2 / mse)
   return psnr
 
-def _save_image(image, path):
+def _save_image(image, path, isHsv=False):
   image = np.transpose(image, [1, 2, 0])
-  image = cv.cvtColor(image, cv.COLOR_RGB2BGR)
+  if isHsv:
+    image = cv.cvtColor(image, cv.COLOR_HSV2BGR)
+  else:
+    image = cv.cvtColor(image, cv.COLOR_RGB2BGR)
   cv.imwrite(path, image)
 
 
@@ -48,6 +51,9 @@ def main():
 
   parser.add_argument('--chop_forward', action='store_true', help='Employ chop-forward to reduce the memory usage.')
   parser.add_argument('--chop_overlap_size', type=int, default=20, help='The overlapping size for the chop-forward process. Should be even.')
+
+  parser.add_argument('--isHsv', action='store_true',
+                      help='Convert color space to hsv.')
 
   args, remaining_args = parser.parse_known_args()
 
@@ -106,7 +112,7 @@ def main():
       if (args.save_path is not None):
         os.makedirs(os.path.join(args.save_path, 'x%d' % (scale)), exist_ok=True)
         output_image_path = os.path.join(args.save_path, 'x%d' % (scale), image_name+'.png')
-        _save_image(output_image, output_image_path)
+        _save_image(output_image, output_image_path, isHsv=args.isHsv)
 
       truth_image = _fit_truth_image_size(output_image=output_image, truth_image=truth_image)
 

@@ -23,6 +23,8 @@ class DIV2KLoader(BaseLoader):
     parser.add_argument('--data_input_path', type=str, default='DIV2K_train_LR_bicubic', help='Base path of the input images. For example, if you specify this argument to \'LR\', the downscaled images by a factor of 4 should be in \'LR/X4/\'.')
     parser.add_argument('--data_truth_path', type=str, default='DIV2K_train_HR', help='Base path of the ground-truth images.')
     parser.add_argument('--data_cached', action='store_true', help='If true, cache the data on the memory.')
+    parser.add_argument('--isHsv', action='store_true',
+                        help='Convert color space to hsv.')
 
     self.args, remaining_args = parser.parse_known_args(args=args)
     return copy.deepcopy(self.args), remaining_args
@@ -120,7 +122,7 @@ class DIV2KLoader(BaseLoader):
     
     if (image is None):
       image_path = os.path.join(self.args.data_input_path, ('X%d' % (scale)), ('%sx%d.png' % (image_name, scale)))
-      image = self._load_image(image_path)
+      image = self._load_image(image_path, isHsv=self.args.isHsv)
     
     if (self.args.data_cached and (not has_cached)):
       self.cached_input_image_list[scale][image_name] = image
@@ -138,7 +140,7 @@ class DIV2KLoader(BaseLoader):
     
     if (image is None):
       image_path = os.path.join(self.args.data_truth_path, ('%s.png' % (image_name)))
-      image = self._load_image(image_path)
+      image = self._load_image(image_path, isHsv=self.args.isHsv)
     
     if (self.args.data_cached and (not has_cached)):
       self.cached_truth_image_list[image_name] = image
@@ -146,8 +148,13 @@ class DIV2KLoader(BaseLoader):
     return image
   
 
-  def _load_image(self, path):
+  def _load_image(self, path, isHsv=False):
     image = cv.imread(path)
-    image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+    #print(isHsv)
+
+    if isHsv:
+      image = cv.cvtColor(image, cv.COLOR_BGR2HSV)
+    else:
+      image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
     image = np.transpose(image, [2, 0, 1])
     return image

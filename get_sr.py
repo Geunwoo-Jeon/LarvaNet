@@ -7,6 +7,7 @@ import time
 
 import models
 from utils import image_utils
+from numpy import zeros, newaxis
 
 import numpy as np
 import cv2 as cv
@@ -30,6 +31,9 @@ def main():
 
   parser.add_argument('--chop_forward', action='store_true', help='Employ chop-forward to reduce the memory usage.')
   parser.add_argument('--chop_overlap_size', type=int, default=20, help='The overlapping size for the chop-forward process. Should be even.')
+
+  parser.add_argument('--isHsv', action='store_true',
+                      help='Convert color space to hsv.')
 
   args, remaining_args = parser.parse_known_args()
 
@@ -70,7 +74,7 @@ def main():
     image_output_path = os.path.join(args.output_path, os.path.splitext(image_name)[0]+'.png')
 
     input_image = cv.imread(image_input_path)
-    input_image = cv.cvtColor(input_image, cv.COLOR_BGR2RGB)
+    input_image = cv.cvtColor(input_image, cv.COLOR_BGR2HSV)
     input_image = np.transpose(input_image, [2, 0, 1])
 
     start_time = time.perf_counter()
@@ -83,10 +87,23 @@ def main():
     duration = end_time - start_time
     duration_list.append(duration)
     
-    output_image = np.clip(output_image, a_min=0, a_max=255)
+    # output_image = np.clip(output_image, a_min=0, a_max=255)
+    output_image_h = output_image[0, :, :]
+    output_image_h = np.clip(output_image_h, a_min=0, a_max=179)
+    output_image_h = output_image_h[newaxis, :, :]
+    output_image_sv = output_image[1:, :, :]
+    output_image_sv = np.clip(output_image_sv, a_min=0, a_max=255)
+
+
+    output_image = np.concatenate([output_image_h, output_image_sv], axis = 0)
+
     output_image = np.round(output_image).astype(np.uint8)
     output_image = np.transpose(output_image, [1, 2, 0])
-    output_image = cv.cvtColor(output_image, cv.COLOR_RGB2BGR)
+    if(args.isHsv):
+      print("hsv to bgr")
+      output_image = cv.cvtColor(output_image, cv.COLOR_HSV2BGR)
+    else:
+      output_image = cv.cvtColor(output_image, cv.COLOR_RGB2BGR)
     cv.imwrite(image_output_path, output_image)
 
     print('%d/%d, %s, duration: %.4fs' % (image_index+1, num_images, image_name, duration))
