@@ -230,7 +230,7 @@ class IMDN_MSRR_Module(nn.Module):
   
   def forward(self, x):
     # tmp = self.mean_shift(x)
-    tmp = self.first_conv(tmp)
+    tmp = self.first_conv(x)
     tmp = self.lrelu(tmp)
 
     res = self.res_blocks(tmp)
