@@ -100,7 +100,6 @@ def main():
     output_image = np.round(output_image).astype(np.uint8)
     output_image = np.transpose(output_image, [1, 2, 0])
     if(args.isHsv):
-      print("hsv to bgr")
       output_image = cv.cvtColor(output_image, cv.COLOR_HSV2BGR)
     else:
       output_image = cv.cvtColor(output_image, cv.COLOR_RGB2BGR)
