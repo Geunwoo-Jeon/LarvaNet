@@ -153,7 +153,11 @@ class MeanShift(nn.Conv2d):
 
     for params in self.parameters():
       params.requires_grad = False
+<<<<<<< HEAD
 
+=======
+          
+>>>>>>> 6f818578442cd07d7942b1b0330e6ed48c38755a
 
 class ResidualBlock(nn.Module):
     def __init__(self, num_channels, weight=1.0):
