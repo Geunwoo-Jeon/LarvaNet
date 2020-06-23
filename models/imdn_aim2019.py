@@ -199,7 +199,8 @@ class IMDN_AIM2019_Module(nn.Module):
     for i in range(args.num_blocks):
       res_block_layers.append(IMDBlock(num_channels=args.num_filters))
     self.res_blocks = nn.Sequential(*res_block_layers)
-    self.after_res_conv = nn.Conv2d(in_channels=args.num_filters, out_channels=args.num_filters, kernel_size=3, stride=1, padding=1)
+    self.after_res_conv = nn.Conv2d(in_channels=args.num_filters, out_channels=args.num_filters, kernel_size=3,
+                                    stride=1, padding=1)
 
     self.upsample = UpsampleBlock(num_channels=args.num_filters, out_channels=3, scale=scale)
 

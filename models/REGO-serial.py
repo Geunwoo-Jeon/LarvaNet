@@ -28,6 +28,7 @@ class REGO(BaseModel):
 
         parser.add_argument('--num_filters', type=int, default=64, help='The number of convolutional features.')
         parser.add_argument('--len_side', type=int, default=5, help='The number of residual blocks.')
+        parser.add_argument('--num_regos', type=int, default=1, help='num of serial repeat of REGO-module')
         parser.add_argument('--res_weight', type=float, default=1.0, help='The scaling factor.')
         parser.add_argument('--interpolate', type=str, default='bilinear', help='Interpolation method.')
         parser.add_argument('--learning_rate', type=float, default=1e-4, help='Initial learning rate.')
@@ -175,40 +176,51 @@ class REGOModule(nn.Module):
         self.mean_shift = MeanShift([114.4, 111.5, 103.0], sign=1.0)
         self.feature_extraction = nn.Conv2d(in_channels=3, out_channels=args.num_filters, kernel_size=3, stride=1, padding=1)
         self.len_side = args.len_side
-        for i in range(self.len_side):
-            for j in range(self.len_side - i):
-                setattr(self, f'RESB_{i}_{j}', RESBlock(num_channels=args.num_filters, weight=args.res_weight))
+        self.num_regos = args.num_regos
+        for k in range(self.num_regos):
+            for i in range(self.len_side):
+                for j in range(self.len_side - i):
+                    setattr(self, f'RESB_{k}_{i}_{j}', RESBlock(num_channels=args.num_filters, weight=args.res_weight))
+            if k != (self.num_regos-1):
+                setattr(self, f'conv_{k}', nn.Conv2d(in_channels=(self.len_side+1) * args.num_filters,
+                                                     out_channels=args.num_filters, kernel_size=3, stride=1, padding=1))
         self.SRrecon = UpsampleBlock(num_channels=(self.len_side+1) * args.num_filters, out_channels=3, scale=scale)
         self.interpolate = args.interpolate
 
     def forward(self, x):
         fea = self.feature_extraction(self.mean_shift(x))
-        # err, fea = self.RESB_bricks[0][0](fea)
-        err, fea = getattr(self, 'RESB_0_0')(fea)
-        err_in = [err]
-        fea_in = [fea]
-        for i in range(1, self.len_side):
-            err_out = []
-            fea_out = []
+        for k in range(self.num_regos):
+            # err, fea = self.RESB_bricks[k][0][0](fea)
+            err, fea = getattr(self, f'RESB_{k}_0_0')(fea)
+            err_in = [err]
+            fea_in = [fea]
+            for i in range(1, self.len_side):
+                err_out = []
+                fea_out = []
 
-            # err, fea = self.RESB_bricks[i][0](err_in[0])
-            err, fea = getattr(self, f'RESB_{i}_0')(err_in[0])
-            err_out.append(err)
-            fea_out.append(fea)
-
-            for j in range(1, i):
-                # err, fea = self.RESB_bricks[i - j][j](fea_in[j - 1] + err_in[j])
-                err, fea = getattr(self, f'RESB_{i-j}_{j}')(fea_in[j - 1] + err_in[j])
+                # err, fea = self.RESB_bricks[i][0](err_in[0])
+                err, fea = getattr(self, f'RESB_{k}_{i}_0')(err_in[0])
                 err_out.append(err)
                 fea_out.append(fea)
 
-            # fea, err = self.RESB_bricks[0][i](fea_in[i - 1])
-            err, fea = getattr(self, f'RESB_0_{i}')(fea_in[i - 1])
-            err_out.append(err)
-            fea_out.append(fea)
+                for j in range(1, i):
+                    # err, fea = self.RESB_bricks[i - j][j](fea_in[j - 1] + err_in[j])
+                    err, fea = getattr(self, f'RESB_{k}_{i-j}_{j}')(fea_in[j - 1] + err_in[j])
+                    err_out.append(err)
+                    fea_out.append(fea)
 
-            fea_in = fea_out
-            err_in = err_out
+                # fea, err = self.RESB_bricks[0][i](fea_in[i - 1])
+                err, fea = getattr(self, f'RESB_{k}_0_{i}')(fea_in[i - 1])
+                err_out.append(err)
+                fea_out.append(fea)
+
+                fea_in = fea_out
+                err_in = err_out
+
+            if k != (self.num_regos - 1):
+                fea = getattr(self, f'conv_{k}')(
+                    torch.cat((err_out[0], *[err + fea for err, fea in zip(err_out[1:], fea_out[:-1])], fea_out[-1]),
+                              dim=1))
 
         sr = self.SRrecon(
             torch.cat((err_out[0], *[err + fea for err, fea in zip(err_out[1:], fea_out[:-1])], fea_out[-1]), dim=1))
