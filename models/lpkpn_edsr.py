@@ -306,6 +306,8 @@ class LPKPN_Module(nn.Module):
     self.final_conv_1 = nn.Conv2d(in_channels=args.num_filters//16, out_channels=args.num_filters, kernel_size=3, stride=1, padding=1)
     self.final_conv_2 = nn.Conv2d(in_channels=args.num_filters, out_channels=args.num_filters, kernel_size=3, stride=1, padding=1)
 
+    self.conv_final = nn.Conv2d(in_channels=args.num_filters, out_channels=3, kernel_size=3, stride=1, padding=1)
+
     self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
   
   def forward(self, x):
@@ -319,11 +321,14 @@ class LPKPN_Module(nn.Module):
     x = torch.add(x, res)
     x = self.upsample(x)
     x = self.final_conv_1(x)
-    x = self.final_conv_2(x)
+    f = self.final_conv_2(x)
 
     bilinear_x = F.interpolate(first_x, scale_factor=4, mode='bilinear', align_corners=False)
 
-    x = self.pixelconv(x, bilinear_x)
+    out_1 = self.pixelconv(f, bilinear_x)
+    out_2 = self.conv_final(f)
+
+    x = out_1 + out_2
     # x = self.mean_inverse_shift(x)
     
     return x

@@ -74,7 +74,11 @@ def main():
     image_output_path = os.path.join(args.output_path, os.path.splitext(image_name)[0]+'.png')
 
     input_image = cv.imread(image_input_path)
-    input_image = cv.cvtColor(input_image, cv.COLOR_BGR2HSV)
+    if(args.isHsv):
+      input_image = cv.cvtColor(input_image, cv.COLOR_BGR2HSV)
+    else:
+      input_image = cv.cvtColor(input_image, cv.COLOR_BGR2RGB)
+
     input_image = np.transpose(input_image, [2, 0, 1])
 
     start_time = time.perf_counter()
@@ -87,15 +91,18 @@ def main():
     duration = end_time - start_time
     duration_list.append(duration)
     
-    # output_image = np.clip(output_image, a_min=0, a_max=255)
-    output_image_h = output_image[0, :, :]
-    output_image_h = np.clip(output_image_h, a_min=0, a_max=179)
-    output_image_h = output_image_h[newaxis, :, :]
-    output_image_sv = output_image[1:, :, :]
-    output_image_sv = np.clip(output_image_sv, a_min=0, a_max=255)
+    output_image = np.clip(output_image, a_min=0, a_max=255)
+    if(args.isHsv):
+      output_image_h = output_image[0, :, :]
+      output_image_h = np.clip(output_image_h, a_min=0, a_max=179)
+      output_image_h = output_image_h[newaxis, :, :]
+      output_image_sv = output_image[1:, :, :]
+      output_image_sv = np.clip(output_image_sv, a_min=0, a_max=255)
 
+      output_image = np.concatenate([output_image_h, output_image_sv], axis = 0)
+    else:
+      output_image = np.clip(output_image, a_min=0, a_max=255)
 
-    output_image = np.concatenate([output_image_h, output_image_sv], axis = 0)
 
     output_image = np.round(output_image).astype(np.uint8)
     output_image = np.transpose(output_image, [1, 2, 0])
