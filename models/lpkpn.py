@@ -15,7 +15,7 @@ from pytorch_msssim import ssim, ms_ssim, SSIM, MS_SSIM
 
 from models.base import BaseModel
 
-# ipkpn with mixed loss
+# ipkpn with l1 loss
 
 def create_model():
   return LPKPN()
@@ -28,7 +28,7 @@ class LPKPN(BaseModel):
     parser = argparse.ArgumentParser()
     
     parser.add_argument('--num_filters', type=int, default=64, help='The number of filters.')
-    parser.add_argument('--num_blocks', type=int, default=8, help='The number of modules.')
+    parser.add_argument('--num_blocks', type=int, default=16, help='The number of modules.')
     parser.add_argument('--learning_rate', type=float, default=1e-4, help='Initial learning rate.')
     parser.add_argument('--learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
     parser.add_argument('--learning_rate_decay_steps', type=int, default=200000, help='The number of training steps to perform learning rate decay.')
@@ -61,7 +61,7 @@ class LPKPN(BaseModel):
         filter(lambda p: p.requires_grad, self.model.parameters()),
         lr=self._get_learning_rate()
       )
-      self.loss_fn = Loss(device=self.device, width=self.args.edsr_train_patch_size * self.scale)
+      self.loss_fn = nn.L1Loss()
 
     # configure device
     self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
