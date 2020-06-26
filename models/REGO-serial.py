@@ -14,6 +14,24 @@ import torch.nn.functional as F
 
 from models.base import BaseModel
 
+def initialize_weights(net_l, scale=1):
+    if not isinstance(net_l, list):
+        net_l = [net_l]
+    for net in net_l:
+        for m in net.modules():
+            if isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight, a=0, mode='fan_in')
+                m.weight.data *= scale  # for residual block
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.Linear):
+                init.kaiming_normal_(m.weight, a=0, mode='fan_in')
+                m.weight.data *= scale
+                if m.bias is not None:
+                    m.bias.data.zero_()
+            elif isinstance(m, nn.BatchNorm2d):
+                init.constant_(m.weight, 1)
+                init.constant_(m.bias.data, 0.0)
 
 def create_model():
     return REGO()
@@ -29,7 +47,7 @@ class REGO(BaseModel):
         parser.add_argument('--num_filters', type=int, default=64, help='The number of convolutional features.')
         parser.add_argument('--len_side', type=int, default=5, help='The number of residual blocks.')
         parser.add_argument('--num_regos', type=int, default=1, help='num of serial repeat of REGO-module')
-        parser.add_argument('--res_weight', type=float, default=1.0, help='The scaling factor.')
+        parser.add_argument('--weight_scale', type=float, default=1.0, help='The scaling factor.')
         parser.add_argument('--interpolate', type=str, default='bilinear', help='Interpolation method.')
         parser.add_argument('--learning_rate', type=float, default=1e-4, help='Initial learning rate.')
         parser.add_argument('--learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
@@ -147,9 +165,10 @@ class RESBlock(nn.Module):
             nn.LeakyReLU(negative_slope=0.1, inplace=True),
             nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=3, stride=1, padding=1)
         )
+        initialize_weights(self.body, weight)
 
     def forward(self, x):
-        res = self.body(x).mul(self.weight)
+        res = self.body(x)
         output = torch.add(x, res)
         return res, output
 
@@ -180,11 +199,12 @@ class REGOModule(nn.Module):
         for k in range(self.num_regos):
             for i in range(self.len_side):
                 for j in range(self.len_side - i):
-                    setattr(self, f'RESB_{k}_{i}_{j}', RESBlock(num_channels=args.num_filters, weight=args.res_weight))
+                    setattr(self, f'RESB_{k}_{i}_{j}', RESBlock(num_channels=args.num_filters, weight=args.weight_scale))
             if k != (self.num_regos-1):
                 setattr(self, f'conv_{k}', nn.Conv2d(in_channels=(self.len_side+1) * args.num_filters,
                                                      out_channels=args.num_filters, kernel_size=3, stride=1, padding=1))
         self.SRrecon = UpsampleBlock(num_channels=(self.len_side+1) * args.num_filters, out_channels=3, scale=scale)
+        initialize_weights([self.feature_extraction, self.SRrecon], args.weight_scale)
         self.interpolate = args.interpolate
 
     def forward(self, x):
