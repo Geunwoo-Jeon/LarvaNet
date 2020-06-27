@@ -37,7 +37,7 @@ class EDSR(BaseModel):
         parser.add_argument('--edsr_learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
         parser.add_argument('--edsr_learning_rate_decay_steps', type=int, default=200000,
                             help='The number of training steps to perform learning rate decay.')
-        parser.add_argument('--edsr_data_augmented', type=bool, default=False,
+        parser.add_argument('--edsr_data_augmented', action='store_true',
                             help='If data augmentation used, you should set it True.')
 
         self.args, remaining_args = parser.parse_known_args(args=args)
