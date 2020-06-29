@@ -107,6 +107,7 @@ class EDSR(BaseModel):
 
         # write summary
         if (summary is not None):
+            summary.add_scalar('loss', loss, self.global_step)
             summary.add_scalar('loss1', loss_1, self.global_step)
             summary.add_scalar('loss2', loss_2, self.global_step)
             summary.add_scalar('lr', lr, self.global_step)
@@ -124,7 +125,7 @@ class EDSR(BaseModel):
         input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
 
         # get SR
-        output_tensor = self.model(input_tensor)
+        output_tensor, _ = self.model(input_tensor)
 
         # finalize
         return output_tensor.detach().cpu().numpy()
