@@ -76,7 +76,10 @@ class EDSR(BaseModel):
         return scale
 
     def one_hot_encoding(self, input, other):
+        diagonal = torch.eye(2)
         res = torch.lt(input, other).long()
+        # tmp_2 = (~torch.lt(input, other)).long()
+        # res = torch.cat((tmp_1, tmp_2), 1)
         return res
 
     def train_step(self, input_list, scale, truth_list, summary=None):
@@ -88,12 +91,10 @@ class EDSR(BaseModel):
         # get SR and calculate loss
         output_tensor_1, output_tensor_2 = self.model(input_tensor)
         loss_tmp = self.loss(output_tensor_1, truth_tensor)
-        shrink = nn.AvgPool2d(kernel_size=4, stride=4, padding=1)
         loss_1 = torch.mean(loss_tmp)
         loss_perimage = torch.mean(loss_tmp, dim=(1,2,3)).unsqueeze(-1)
         loss_avg = torch.mean(loss_perimage)
-        loss_avg = loss_avg.repeat(16, 192, 192)
-        print(loss_avg.shape)
+        loss_avg = loss_avg.repeat(16, 1)
 
         truth_hot = self.one_hot_encoding(loss_perimage, loss_avg)
         truth_hot = truth_hot.squeeze(1)
@@ -173,7 +174,6 @@ class ResidualBlock(nn.Module):
         return output
 
 
-
 class UpsampleBlock(nn.Module):
     def __init__(self, num_channels, scale):
         super(UpsampleBlock, self).__init__()
@@ -219,9 +219,9 @@ class EDSRModule(nn.Module):
         self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
 
         self.error_predict = nn.Sequential(
-            nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=args.edsr_conv_features//4, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=args.edsr_conv_features, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=args.edsr_conv_features//4, out_channels=args.edsr_conv_features//32, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=args.edsr_conv_features, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
             nn.AvgPool2d(kernel_size=12)
         )
