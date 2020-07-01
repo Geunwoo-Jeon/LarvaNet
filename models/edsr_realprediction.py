@@ -8,6 +8,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.nn.functional as F
 
 from models.base import BaseModel
 
@@ -54,8 +55,7 @@ class EDSR(BaseModel):
                 filter(lambda p: p.requires_grad, self.model.parameters()),
                 lr=self._get_learning_rate()
             )
-            self.loss = nn.L1Loss(reduction='none')
-            self.loss_classification = nn.CrossEntropyLoss()
+            self.loss = nn.L1Loss()
 
         # configure device
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -83,25 +83,19 @@ class EDSR(BaseModel):
         # numpy to torch
         lmbda = 0.1
         input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
-        truth_tensor = torch.tensor(truth_list, dtype=torch.float32, device=self.device)
+        truth_tensor_1 = torch.tensor(truth_list, dtype=torch.float32, device=self.device)
+        truth_bicubic_tensor = F.interpolate(truth_tensor_1, scale_factor=0.25, mode='bicubic', align_corners=False)
+        truth_tensor_2 = torch.mean(torch.abs(truth_bicubic_tensor - input_tensor), dim=1).unsqueeze(1)
 
         # get SR and calculate loss
         output_tensor_1, output_tensor_2 = self.model(input_tensor)
-        loss_tmp = self.loss(output_tensor_1, truth_tensor)
-        shrink = nn.AvgPool2d(kernel_size=4, stride=4, padding=1)
-        loss_1 = torch.mean(loss_tmp)
-        loss_perimage = torch.mean(loss_tmp, dim=(1,2,3)).unsqueeze(-1)
-        loss_avg = torch.mean(loss_perimage)
-        loss_avg = loss_avg.repeat(16, 192, 192)
-        print(loss_avg.shape)
 
-        truth_hot = self.one_hot_encoding(loss_perimage, loss_avg)
-        truth_hot = truth_hot.squeeze(1)
+        # get SR and calculate loss
 
-        loss_2 = self.loss_classification(output_tensor_2, truth_hot)
-        loss_2 = torch.mean(loss_2)
+        loss_1 = self.loss(output_tensor_1, truth_tensor_1)
+        loss_2 = self.loss(output_tensor_2, truth_tensor_2)
 
-        loss = loss_1 + lmbda * loss_2
+        loss = loss_1 + loss_2 * lmbda
 
         # adjust learning rate
         lr = self._get_learning_rate()
@@ -218,18 +212,10 @@ class EDSRModule(nn.Module):
 
         self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
 
-        self.error_predict = nn.Sequential(
+        self.real_predict = nn.Sequential(
             nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=args.edsr_conv_features//4, kernel_size=3, stride=1, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=args.edsr_conv_features//4, out_channels=args.edsr_conv_features//32, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
-            nn.AvgPool2d(kernel_size=12)
-        )
-        self.error_predict_2 = nn.Sequential(
-            nn.Linear(64, 8, bias=False),
-            nn.ReLU(inplace=True),
-            nn.Linear(8, 2, bias=False)
-            # nn.Linear(8, 1, bias=False)
+            nn.Conv2d(in_channels=args.edsr_conv_features//4, out_channels=args.edsr_conv_features//64, kernel_size=3, stride=1, padding=1)
         )
 
 
@@ -246,9 +232,7 @@ class EDSRModule(nn.Module):
         x = self.final_conv(x)
         x1 = self.mean_inverse_shift(x)
 
-        x2 = self.error_predict(tmp)
-        x2 = x2.view(-1, self.args.edsr_conv_features)
-        x2 = self.error_predict_2(x2)
+        x2 = self.real_predict(tmp)
 
         return x1, x2
 

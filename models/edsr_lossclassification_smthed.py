@@ -76,7 +76,10 @@ class EDSR(BaseModel):
         return scale
 
     def one_hot_encoding(self, input, other):
-        res = torch.lt(input, other).long()
+        res = torch.lt(input, other).float()
+        res = torch.mean(res, dim=1)
+        shrink = nn.AvgPool2d(kernel_size=192)
+        res = shrink(res)
         return res
 
     def train_step(self, input_list, scale, truth_list, summary=None):
@@ -90,15 +93,16 @@ class EDSR(BaseModel):
         loss_tmp = self.loss(output_tensor_1, truth_tensor)
         shrink = nn.AvgPool2d(kernel_size=4, stride=4, padding=1)
         loss_1 = torch.mean(loss_tmp)
-        loss_perimage = torch.mean(loss_tmp, dim=(1,2,3)).unsqueeze(-1)
-        loss_avg = torch.mean(loss_perimage)
-        loss_avg = loss_avg.repeat(16, 192, 192)
-        print(loss_avg.shape)
+        loss_avg = torch.mean(loss_tmp)
+        loss_avg = loss_avg.repeat(16, 3, 192, 192)
 
-        truth_hot = self.one_hot_encoding(loss_perimage, loss_avg)
-        truth_hot = truth_hot.squeeze(1)
+        truth_rate = self.one_hot_encoding(loss_avg, loss_tmp)
+        truth_rate = truth_rate.squeeze()
+        # print(truth_hot)
 
-        loss_2 = self.loss_classification(output_tensor_2, truth_hot)
+        loss_2_tmp1 = self.loss_classification(output_tensor_2, torch.zeros(16, device='cuda').long())
+        loss_2_tmp2 = self.loss_classification(output_tensor_2, torch.ones(16, device='cuda').long())
+        loss_2 = truth_rate * loss_2_tmp2 + (1.-truth_rate) * loss_2_tmp1
         loss_2 = torch.mean(loss_2)
 
         loss = loss_1 + lmbda * loss_2
@@ -219,9 +223,9 @@ class EDSRModule(nn.Module):
         self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
 
         self.error_predict = nn.Sequential(
-            nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=args.edsr_conv_features//4, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=args.edsr_conv_features, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=args.edsr_conv_features//4, out_channels=args.edsr_conv_features//32, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=args.edsr_conv_features, kernel_size=4, stride=2, padding=1),
             nn.ReLU(inplace=True),
             nn.AvgPool2d(kernel_size=12)
         )
