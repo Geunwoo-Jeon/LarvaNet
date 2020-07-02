@@ -68,32 +68,36 @@ class BasicLoader(BaseLoader):
 
 
   def get_image_patch_pair(self, image_index, scale, input_patch_size):
-    # retrieve image
-    input_image, truth_image, _ = self.get_image_pair(image_index=image_index, scale=scale)
+    while True:
+      # retrieve image
+      input_image, truth_image, _ = self.get_image_pair(image_index=image_index, scale=scale)
+      _, height, width = input_image.shape
 
-    # randomly crop
-    truth_patch_size = input_patch_size * scale
-    _, height, width = input_image.shape
-    input_x = np.random.randint(width - input_patch_size)
-    input_y = np.random.randint(height - input_patch_size)
-    truth_x = input_x * scale
-    truth_y = input_y * scale
-    input_patch = input_image[:, input_y:(input_y+input_patch_size), input_x:(input_x+input_patch_size)]
-    truth_patch = truth_image[:, truth_y:(truth_y+truth_patch_size), truth_x:(truth_x+truth_patch_size)]
+      if (height <= input_patch_size or width <= input_patch_size):
+        continue
 
-    # randomly rotate
-    rot90_k = np.random.randint(4)+1
-    input_patch = np.rot90(input_patch, k=rot90_k, axes=(1, 2))
-    truth_patch = np.rot90(truth_patch, k=rot90_k, axes=(1, 2))
+      # randomly crop
+      truth_patch_size = input_patch_size * scale
+      input_x = np.random.randint(width - input_patch_size)
+      input_y = np.random.randint(height - input_patch_size)
+      truth_x = input_x * scale
+      truth_y = input_y * scale
+      input_patch = input_image[:, input_y:(input_y+input_patch_size), input_x:(input_x+input_patch_size)]
+      truth_patch = truth_image[:, truth_y:(truth_y+truth_patch_size), truth_x:(truth_x+truth_patch_size)]
 
-    # randomly flip
-    flip = (np.random.uniform() < 0.5)
-    if (flip):
-      input_patch = input_patch[:, :, ::-1]
-      truth_patch = truth_patch[:, :, ::-1]
-    
-    # finalize
-    return input_patch, truth_patch
+      # randomly rotate
+      rot90_k = np.random.randint(4)+1
+      input_patch = np.rot90(input_patch, k=rot90_k, axes=(1, 2))
+      truth_patch = np.rot90(truth_patch, k=rot90_k, axes=(1, 2))
+
+      # randomly flip
+      flip = (np.random.uniform() < 0.5)
+      if (flip):
+        input_patch = input_patch[:, :, ::-1]
+        truth_patch = truth_patch[:, :, ::-1]
+      
+      # finalize
+      return input_patch, truth_patch
   
 
   def get_image_pair(self, image_index, scale):
