@@ -21,7 +21,7 @@ def _fit_truth_image_size(output_image, truth_image):
 def _image_psnr(output_image, truth_image, scale):
   shave = scale + 6
   diff = np.float32(truth_image) - np.float32(output_image)
-  diff = diff[:, shave:-shave, shave:-shave]
+  # diff = diff[:, shave:-shave, shave:-shave]
   mse = np.mean(np.power(diff, 2))
   psnr = 10.0 * np.log10(255.0 ** 2 / mse)
   return psnr
