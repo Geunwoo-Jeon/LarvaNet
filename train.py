@@ -22,6 +22,8 @@ def main():
   parser.add_argument('--scales', type=str, default='4', help='Scales of the input images. Use the \',\' character to specify multiple scales (e.g., 2,3,4).')
   parser.add_argument('--cuda_device', type=str, default='0', help='CUDA device index to be used in training. This parameter may be set to the environment variable \'CUDA_VISIBLE_DEVICES\'. Specify it as -1 to disable GPUs.')
 
+  parser.add_argument('--reverse_scale', action='store_true', help='Specify this to input HR and output LR.')
+
   parser.add_argument('--train_path', type=str, default='/tmp/train/', help='Base path of the trained model to be saved.')
   parser.add_argument('--max_steps', type=int, default=300000, help='The maximum number of training steps.')
   parser.add_argument('--log_freq', type=int, default=10, help='The frequency of logging.')
@@ -98,7 +100,10 @@ def main():
     else:
       input_list, truth_list = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale, input_patch_size=args.input_patch_size)
     
-    loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary)
+    if (args.reverse_scale):
+      loss = model.train_step(input_list=truth_list, scale=scale, truth_list=input_list, summary=summary)
+    else:
+      loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary)
 
     duration = time.time() - start_time
     if (args.sleep_ratio > 0 and duration > 0):
