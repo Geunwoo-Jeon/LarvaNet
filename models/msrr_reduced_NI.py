@@ -189,7 +189,5 @@ class MSRRModule(nn.Module):
         out = self.res_blocks(out)
 
         out = self.upsample(out)
-        base = F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=False)
-        out += base
 
         return out
