@@ -46,6 +46,7 @@ class MSRR(BaseModel):
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--num_blocks', type=int, default=32, help='The number of residual blocks.')
+        parser.add_argument('--interpolate', type=str, default='bilinear', help='Interpolation method.')
         parser.add_argument('--res_weight', type=float, default=1.0, help='The scaling factor.')
         parser.add_argument('--learning_rate', type=float, default=1e-4, help='Initial learning rate.')
         parser.add_argument('--learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
@@ -183,13 +184,15 @@ class MSRRModule(nn.Module):
         # initialization
         initialize_weights(self.first_conv, 0.1)
 
+        self.interpolate = args.interpolate
+
     def forward(self, x):
         out = self.lrelu(self.first_conv(x))
 
         out = self.res_blocks(out)
 
         out = self.upsample(out)
-        base = F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=False)
+        base = F.interpolate(x, scale_factor=4, mode=self.interpolate, align_corners=False)
         out += base
 
         return out
