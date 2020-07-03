@@ -3,6 +3,7 @@ import importlib
 import json
 import os
 import time
+import torch
 
 import dataloaders
 import models
@@ -77,9 +78,11 @@ def main():
     for image_index in range(num_images):
       input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index, scale=scale)
 
+      input_tensor = torch.tensor([input_image], dtype=torch.float32, device='cuda')
       start_time = time.perf_counter()
-        output_image = F.interpolate(input_image, scale_factor=4, mode=args.interpolate, align_corners=False)
+      output_tensor = F.interpolate(input_tensor, scale_factor=scale, mode=args.interpolate, align_corners=False)[0]
       end_time = time.perf_counter()
+      output_image = output_tensor.detach().cpu().numpy()
 
       duration = end_time - start_time
       duration_list.append(duration)
