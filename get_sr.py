@@ -91,7 +91,7 @@ def main():
     duration = end_time - start_time
     duration_list.append(duration)
     
-    output_image = np.clip(output_image, a_min=0, a_max=255)
+
     if(args.isHsv):
       output_image_h = output_image[0, :, :]
       output_image_h = np.clip(output_image_h, a_min=0, a_max=179)
