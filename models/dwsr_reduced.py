@@ -45,6 +45,7 @@ class MSRR(BaseModel):
     def parse_args(self, args):
         parser = argparse.ArgumentParser()
 
+        parser.add_argument('--num_blocks', type=int, default=32, help='The number of residual blocks.')
         parser.add_argument('--interpolate', type=str, default='bilinear', help='Interpolation method.')
         parser.add_argument('--res_weight', type=float, default=1.0, help='The scaling factor.')
         parser.add_argument('--learning_rate', type=float, default=1e-4, help='Initial learning rate.')
