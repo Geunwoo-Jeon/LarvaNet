@@ -147,7 +147,7 @@ class MSRR(BaseModel):
 
 class DepthWiseResidualBlock(nn.Module):
     def __init__(self, num_channels, weight=1.0):
-        super(ResidualBlock, self).__init__()
+        super(DepthWiseResidualBlock, self).__init__()
 
         self.body = nn.Sequential(
             nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=3, stride=1, padding=1,
