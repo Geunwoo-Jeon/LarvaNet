@@ -46,6 +46,7 @@ class MSRR(BaseModel):
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--num_blocks', type=int, default=32, help='The number of residual blocks.')
+        parser.add_argument('--slope', type=float, default=0.1, help='Slope of LeakyReLU function.')
         parser.add_argument('--interpolate', type=str, default='bilinear', help='Interpolation method.')
         parser.add_argument('--res_weight', type=float, default=1.0, help='The scaling factor.')
         parser.add_argument('--learning_rate', type=float, default=1e-4, help='Initial learning rate.')
@@ -146,16 +147,16 @@ class MSRR(BaseModel):
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, num_channels, weight=1.0):
+    def __init__(self, num_channels, slope=0.1):
         super(ResidualBlock, self).__init__()
 
         self.body = nn.Sequential(
             nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=3, stride=1, padding=1),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True),
+            nn.LeakyReLU(negative_slope=slope, inplace=True),
             nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=3, stride=1, padding=1)
         )
         # initialization
-        initialize_weights(self.body, a=0.2, scale=0.1)
+        initialize_weights(self.body, a=slope, scale=0.1)
 
     def forward(self, x):
         res = self.body(x)
@@ -174,15 +175,15 @@ class MSRRModule(nn.Module):
 
         res_block_layers = []
         for i in range(args.num_blocks):
-            res_block_layers.append(ResidualBlock(num_channels=num_filters, weight=args.res_weight))
+            res_block_layers.append(ResidualBlock(num_channels=num_filters, slope=args.slope))
         self.res_blocks = nn.Sequential(*res_block_layers)
         self.upsample = nn.PixelShuffle(scale)
 
         # activation function
-        self.lrelu = nn.LeakyReLU(negative_slope=0.2, inplace=True)
+        self.lrelu = nn.LeakyReLU(negative_slope=args.slope, inplace=True)
 
         # initialization
-        initialize_weights(self.first_conv, a=0.2, scale=0.1)
+        initialize_weights(self.first_conv, a=args.slope, scale=0.1)
 
         self.interpolate = args.interpolate
 
