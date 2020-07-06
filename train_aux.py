@@ -93,14 +93,14 @@ def main():
       scale = model.get_next_train_scale()
       summary = summary_writers[scale] if (local_train_step % args.summary_freq == 0) else None
       input_list, truth_list = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale, input_patch_size=args.input_patch_size)
-      loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary, train_kind=False)
+      loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary, train_kind=True)
 
       duration = time.time() - start_time
       if (args.sleep_ratio > 0 and duration > 0):
         time.sleep(min(10.0, duration*args.sleep_ratio))
 
       if (local_train_step % args.log_freq == 0):
-        print('step %d, scale x%d, loss %.6f (%.3f sec/batch)' % (global_train_step, scale, loss, duration))
+        print('a: step %d, scale x%d, loss %.6f (%.3f sec/batch)' % (global_train_step, scale, loss, duration))
 
       if (local_train_step % args.save_freq == 0):
         model.save(base_path=args.train_path)
@@ -116,14 +116,14 @@ def main():
       summary = summary_writers[scale] if (local_train_step % args.summary_freq == 0) else None
       input_list, truth_list = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale,
                                                           input_patch_size=args.input_patch_size)
-      loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary, train_kind=True)
+      loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary, train_kind=False)
 
       duration = time.time() - start_time
       if (args.sleep_ratio > 0 and duration > 0):
         time.sleep(min(10.0, duration * args.sleep_ratio))
 
       if (local_train_step % args.log_freq == 0):
-        print('step %d, scale x%d, loss %.6f (%.3f sec/batch)' % (global_train_step, scale, loss, duration))
+        print('b: step %d, scale x%d, loss %.6f (%.3f sec/batch)' % (global_train_step, scale, loss, duration))
 
       if (local_train_step % args.save_freq == 0):
         model.save(base_path=args.train_path)
