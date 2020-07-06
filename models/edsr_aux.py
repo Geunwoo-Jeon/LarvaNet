@@ -33,6 +33,7 @@ class EDSR(BaseModel):
         parser.add_argument('--edsr_learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
         parser.add_argument('--edsr_learning_rate_decay_steps', type=int, default=200000,
                             help='The number of training steps to perform learning rate decay.')
+        parser.add_argument('--batch_size', type=int, default=16, help='Size of the batches for each training step.')
 
         self.args, remaining_args = parser.parse_known_args(args=args)
         return copy.deepcopy(self.args), remaining_args
@@ -51,9 +52,15 @@ class EDSR(BaseModel):
 
         # PyTorch model
         self.model = EDSRModule(args=self.args, scale=self.scale)
+        self.model_tmp = EDSRModule(args=self.args, scale=self.scale)
         if (is_training):
             self.optim = optim.Adam(
                 filter(lambda p: p.requires_grad, self.model.parameters()),
+                lr=self._get_learning_rate()
+            )
+
+            self.optim_tmp = optim.Adam(
+                filter(lambda p: p.requires_grad, self.model_tmp.parameters()),
                 lr=self._get_learning_rate()
             )
             self.loss_fn = nn.L1Loss()
@@ -61,6 +68,7 @@ class EDSR(BaseModel):
         # configure device
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = self.model.to(self.device)
+        self.model_tmp = self.model_tmp.to(self.device)
 
     def save(self, base_path):
         save_path = os.path.join(base_path, 'model_%d.pth' % (self.global_step))
@@ -76,6 +84,16 @@ class EDSR(BaseModel):
         scale = self.scale_list[np.random.randint(len(self.scale_list))]
         return scale
 
+    def get_batch(self):
+        return self.args.batch_size
+
+    def get_named_parameters(self, model):
+        return self.model.named_parameters()
+
+    def copy_weight(self, model1, model2):
+        for i, j in zip(self.get_named_parameters(model1), self.get_named_parameters(model2)):
+            i[1].data = j[1].data.clone()
+
     def tv_loss(self, img, tv_weight):
         w_variance = torch.sum(torch.pow(img[:, :, :, :-1] - img[:, :, :, 1:], 2))
         h_variance = torch.sum(torch.pow(img[:, :, :-1, :] - img[:, :, 1:, :], 2))
@@ -88,14 +106,13 @@ class EDSR(BaseModel):
         input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
         truth_tensor = torch.tensor(truth_list, dtype=torch.float32, device=self.device)
 
-        print(train_kind)
-
 
         # adjust learning rate
         lr = self._get_learning_rate()
         for param_group in self.optim.param_groups:
             param_group['lr'] = lr
-        if(train_kind):
+
+        if (train_kind):
             # get SR and calculate loss
             output_tensor_1, output_tensor_2, output_tensor_3 = self.model(input_tensor)
             loss_primary = self.loss_fn(output_tensor_1, truth_tensor)
@@ -133,39 +150,44 @@ class EDSR(BaseModel):
             return loss_1.item()
 
         else:
-            output_tensor_1, output_tensor_2, output_tensor_3 = self.model(input_tensor)
-            loss_primary = self.loss_fn(output_tensor_1, truth_tensor)
-            loss_aux = self.loss_fn(output_tensor_2, output_tensor_3)
-            loss_tv = self.tv_loss(output_tensor_3, lmbda)
+            with torch.autograd.set_detect_anomaly(True):
+                self.copy_weight(self.model_tmp, self.model)
 
-            output_tensor_3_forloss = torch.mean(output_tensor_3, dim=0)
-            loss_entropy = output_tensor_3_forloss * torch.log(output_tensor_3_forloss + 1e-20)
-            loss_entropy = torch.sum(loss_entropy)
+                output_tensor_1, output_tensor_2, output_tensor_3 = self.model_tmp(input_tensor)
+                loss_primary = self.loss_fn(output_tensor_1, truth_tensor)
+                loss_aux = self.loss_fn(output_tensor_2, output_tensor_3)
 
-            loss_1 = loss_primary + loss_aux
+                loss_1 = loss_primary + loss_aux
 
-            # current theta_1
-            fast_weights = OrderedDict((name, param) for (name, param) in self.model.named_parameters())
-            print(fast_weights)
-            # create_graph flag for computing second-derivative
-            grads = torch.autograd.grad(loss_1, self.model.parameters(), create_graph=True)
-            data = [p.data for p in list(self.model.parameters())]
 
-            # compute theta_1^+ by applying sgd on multi-task loss
-            fast_weights = OrderedDict(
-                (name, param - lr * grad) for ((name, param), grad, data) in zip(fast_weights.items(), grads, data))
+            # # current theta_1
+            # fast_weights = OrderedDict((name, param) for (name, param) in self.model.named_parameters())
+            # print(fast_weights)
+            # # create_graph flag for computing second-derivative
+            # grads = torch.autograd.grad(loss_1, self.model.parameters(), create_graph=True)
+            # data = [p.data for p in list(self.model.parameters())]
+            #
+            # # compute theta_1^+ by applying sgd on multi-task loss
+            # fast_weights = OrderedDict(
+            #     (name, param - lr * grad) for ((name, param), grad, data) in zip(fast_weights.items(), grads, data))
 
             # compute primary loss with the updated thetat_1^+
-            output_tensor_1, output_tensor_2, output_tensor_3 = self.model(input_tensor, fast_weights)
 
-            loss_primary = self.loss_fn(output_tensor_1, truth_tensor)
-            loss_entropy = output_tensor_3 * torch.log(output_tensor_3 + 1e-20)
-            loss_entropy = torch.sum(loss_entropy)
-            loss_2 = loss_primary + loss_tv + lmbda * loss_entropy
+                self.optim_tmp.zero_grad()
+                loss_1.backward()
+                self.optim_tmp.step()
 
-            self.optim.zero_grad()
-            loss_2.backward()
-            self.optim.step()
+                output_tensor_1, output_tensor_2, output_tensor_3 = self.model_tmp(input_tensor)
+
+                loss_primary = self.loss_fn(output_tensor_1, truth_tensor)
+                loss_entropy = output_tensor_3 * torch.log(output_tensor_3 + 1e-20)
+                loss_entropy = torch.sum(loss_entropy)
+                loss_tv = self.tv_loss(output_tensor_3, lmbda)
+                loss_2 = loss_primary + loss_tv + lmbda * loss_entropy
+
+                self.optim_tmp.zero_grad()
+                loss_2.backward()
+                self.optim_tmp.step()
 
             self.global_step += 1
 
@@ -209,7 +231,7 @@ class MeanShift(nn.Conv2d):
         self.bias_data = sign * torch.Tensor(rgb_mean)
 
         for params in self.parameters():
-            params.requires_grad = False
+            params.requires_grad = True
 
 
 class ResidualBlock(nn.Module):
@@ -286,7 +308,7 @@ class EDSRModule(nn.Module):
         self.sigmoid = nn.Sigmoid()
         self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
 
-    def conv_ff(self, input, weights):
+    def crc_ff(self, input, weights):
         net = F.conv2d(input, weights['block{:d}.0.weight'], weights['block{:d}.0.bias'],
                        padding=1)
         net = F.relu(net, inplace=True)
@@ -294,6 +316,12 @@ class EDSRModule(nn.Module):
                        padding=1)
 
         return net
+
+    def conv_ff(self, input, weights):
+        net = F.conv2d(input, weights['block{:d}.0.weight'], weights['block{:d}.0.bias'],
+                       padding=1)
+        return net
+
 
     def forward(self, x, weights=None):
 
