@@ -188,12 +188,12 @@ class MSRRModule(nn.Module):
             self.lr_res_blocks = nn.Sequential(*lr_res_block_layers)
 
         self.upsample = nn.PixelShuffle(scale)
-        self.middle_conv = nn.Conv2d(in_channels=3, out_channels=args.num_hr_filters, kernel_size=3, stride=1, padding=1)
 
         hr_res_block_layers = []
         for i in range(args.num_hr_blocks):
             hr_res_block_layers.append(ResidualBlock(num_channels=args.num_hr_filters, filter_size=args.hr_filter_size))
         if args.num_hr_blocks > 0:
+            self.hr_conv = nn.Conv2d(in_channels=3, out_channels=args.num_hr_filters, kernel_size=3, stride=1, padding=1)
             self.hr_res_blocks = nn.Sequential(*hr_res_block_layers)
 
         self.final_conv = nn.Conv2d(in_channels=args.num_hr_filters, out_channels=3, kernel_size=3, stride=1, padding=1)
@@ -213,9 +213,9 @@ class MSRRModule(nn.Module):
             out = self.lr_res_blocks(out)
 
         out = self.upsample(out)
-        out = self.lrelu(self.middle_conv(out))
 
         if hasattr(self, 'hr_res_blocks'):
+            out = self.lrelu(self.hr_conv(out))
             out = self.hr_res_blocks(out)
 
         out = self.final_conv(self.lrelu(out))
