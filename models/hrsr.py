@@ -45,10 +45,12 @@ class MSRR(BaseModel):
     def parse_args(self, args):
         parser = argparse.ArgumentParser()
 
-        parser.add_argument('--num_lr_blocks', type=int, default=32, help='The number of residual blocks at LR domain.')
-        parser.add_argument('--num_hr_blocks', type=int, default=0, help='The number of residual blocks at HR domain.')
+        parser.add_argument('--num_lr_blocks', type=int, default=4, help='The number of residual blocks at LR domain.')
+        parser.add_argument('--num_hr_blocks', type=int, default=4, help='The number of residual blocks at HR domain.')
+        parser.add_argument('--num_hr_filters', type=int, default=12, help='The number of filters at HR domain.')
+        parser.add_argument('--hr_filter_size', type=int, default=3, help='The size of filters at HR domain.')
         parser.add_argument('--interpolate', type=str, default='bilinear', help='Interpolation method.')
-        parser.add_argument('--res_weight', type=float, default=1.0, help='The scaling factor.')
+
         parser.add_argument('--learning_rate', type=float, default=1e-4, help='Initial learning rate.')
         parser.add_argument('--learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
         parser.add_argument('--learning_rate_decay_steps', type=int, default=200000,
@@ -145,15 +147,19 @@ class MSRR(BaseModel):
         return self.args.learning_rate * (self.args.learning_rate_decay ** (
                 self.global_step // self.args.learning_rate_decay_steps))
 
+    def fwd_runtime(self, input_tensor):
+        output_tensor = self.model(input_tensor)
+        return output_tensor
+
 
 class ResidualBlock(nn.Module):
-    def __init__(self, num_channels, weight=1.0):
+    def __init__(self, num_channels, filter_size=3):
         super(ResidualBlock, self).__init__()
 
         self.body = nn.Sequential(
-            nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=filter_size, stride=1, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=3, stride=1, padding=1)
+            nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=filter_size, stride=1, padding=1)
         )
         # initialization
         initialize_weights(self.body, 0.1)
@@ -175,7 +181,7 @@ class MSRRModule(nn.Module):
 
         lr_res_block_layers = []
         for i in range(args.num_lr_blocks):
-            lr_res_block_layers.append(ResidualBlock(num_channels=num_filters, weight=args.res_weight))
+            lr_res_block_layers.append(ResidualBlock(num_channels=num_filters))
         if args.num_lr_blocks > 0:
             self.lr_res_blocks = nn.Sequential(*lr_res_block_layers)
 
@@ -184,7 +190,7 @@ class MSRRModule(nn.Module):
 
         hr_res_block_layers = []
         for i in range(args.num_hr_blocks):
-            hr_res_block_layers.append(ResidualBlock(num_channels=12, weight=args.res_weight))
+            hr_res_block_layers.append(ResidualBlock(num_channels=args.num_hr_filters, filter_size=args.hr_filter_size))
         if args.num_hr_blocks > 0:
             self.hr_res_blocks = nn.Sequential(*hr_res_block_layers)
 
