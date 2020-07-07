@@ -80,14 +80,14 @@ class EDSR_MAXL(BaseModel):
     scale = self.scale_list[np.random.randint(len(self.scale_list))]
     return scale
 
-  def train_step(self, input_list, scale, truth_list, summary=None, stage=2):
+  def train_step(self, input_list, scale, truth_list, summary=None, stage=0):
     # numpy to torch
     input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
     truth_tensor = torch.tensor(truth_list, dtype=torch.float32, device=self.device)
     lmbda = 0.1
     lr_tmp = 0.01
 
-    if (stage == 1):
+    if (stage == 0):
       # get SR and calculate loss
       output_tensor1, output_tensor2 = self.model(input_tensor)
       output_tensor3 = self.label_generator(input_tensor)
@@ -116,18 +116,24 @@ class EDSR_MAXL(BaseModel):
 
       # write summary
       if (summary is not None):
-        summary.add_scalar('loss', loss, self.global_step)
+        summary.add_scalar('loss_pri', loss_pri, self.global_step)
+        summary.add_scalar('loss_aux', loss_aux, self.global_step)
+        summary.add_scalar('loss_tv', loss_tv, self.global_step)
         summary.add_scalar('lr', lr, self.global_step)
 
         output_tensor1_uint8 = output_tensor1.clamp(0, 255).byte()
+        output_tensor2_uint8 = torch.mul(output_tensor2, 255.0).clamp(0, 255).byte()
+        output_tensor3_uint8 = torch.mul(output_tensor3, 255.0).clamp(0, 255).byte()
         for i in range(min(4, len(input_list))):
           summary.add_image('input/%d' % i, input_list[i], self.global_step)
-          summary.add_image('output/%d' % i, output_tensor1_uint8[i, :, :, :], self.global_step)
+          summary.add_image('output1/%d' % i, output_tensor1_uint8[i, :, :, :], self.global_step)
+          summary.add_image('output2/%d' % i, output_tensor2_uint8[i, :, :, :], self.global_step)
+          summary.add_image('output3/%d' % i, output_tensor3_uint8[i, :, :, :], self.global_step)
           summary.add_image('truth/%d' % i, truth_list[i], self.global_step)
 
       return loss1.item()
 
-    elif (stage == 2):
+    elif (stage == 1):
       # get SR and calculate loss
       output_tensor1, output_tensor2 = self.model(input_tensor)
       output_tensor3 = self.label_generator(input_tensor)
@@ -157,9 +163,8 @@ class EDSR_MAXL(BaseModel):
 
       # compute primary loss with the updated thetat_1^+
       output_tensor1, output_tensor2 = self.model(input_tensor, weights=fast_weights)
-      loss_pri = self.loss_fn(output_tensor1, truth_tensor)
-
-      loss2 = loss_pri + lmbda * loss_tv 
+      loss_pri_ = self.loss_fn(output_tensor1, truth_tensor)
+      loss2 = loss_pri_ + lmbda * loss_tv 
 
       # do back propagation
       self.gen_optim.zero_grad()
@@ -171,15 +176,20 @@ class EDSR_MAXL(BaseModel):
 
       # write summary
       if (summary is not None):
-        summary.add_scalar('loss', loss, self.global_step)
+        summary.add_scalar('loss_pri', loss_pri, self.global_step)
+        summary.add_scalar('loss_aux', loss_aux, self.global_step)
+        summary.add_scalar('loss_tv', loss_tv, self.global_step)        
         summary.add_scalar('lr', lr, self.global_step)
 
         output_tensor1_uint8 = output_tensor1.clamp(0, 255).byte()
+        output_tensor2_uint8 = torch.mul(output_tensor2, 255.0).clamp(0, 255).byte()
+        output_tensor3_uint8 = torch.mul(output_tensor3, 255.0).clamp(0, 255).byte()
         for i in range(min(4, len(input_list))):
           summary.add_image('input/%d' % i, input_list[i], self.global_step)
-          summary.add_image('output/%d' % i, output_tensor1_uint8[i, :, :, :], self.global_step)
+          summary.add_image('output1/%d' % i, output_tensor1_uint8[i, :, :, :], self.global_step)
+          summary.add_image('output2/%d' % i, output_tensor2_uint8[i, :, :, :], self.global_step)
+          summary.add_image('output3/%d' % i, output_tensor3_uint8[i, :, :, :], self.global_step)
           summary.add_image('truth/%d' % i, truth_list[i], self.global_step)
-
       return loss2.item()
 
 
@@ -291,7 +301,8 @@ class EDSRModule(nn.Module):
       for i in range(16):
         tmp = F.conv2d(x, weights['res_blocks.{:d}.body.0.weight'.format(i)], weights['res_blocks.{:d}.body.0.bias'.format(i)], stride=1, padding=1)
         tmp = F.relu(tmp, inplace=True)
-        x += F.conv2d(tmp, weights['res_blocks.{:d}.body.2.weight'.format(i)], weights['res_blocks.{:d}.body.2.bias'.format(i)], stride=1, padding=1)
+        tmp = F.conv2d(tmp, weights['res_blocks.{:d}.body.2.weight'.format(i)], weights['res_blocks.{:d}.body.2.bias'.format(i)], stride=1, padding=1)
+        x = torch.add(x, tmp)
       x = F.conv2d(x, weights['after_res_conv.weight'], weights['after_res_conv.bias'], stride=1, padding=1)
       shared_feat = torch.add(before_res, x)
 
@@ -305,7 +316,6 @@ class EDSRModule(nn.Module):
       x_pri = torch.add(base, x)
 
       x_aux = F.conv2d(shared_feat, weights['aux_conv.weight'], weights['aux_conv.bias'], stride=1, padding=1)
-
 
     return x_pri, x_aux
 
