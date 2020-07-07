@@ -333,13 +333,13 @@ class EDSRModule(nn.Module):
             res = self.after_res_conv(res)
             tmp = torch.add(x, res)
 
-            x1 = self.upsample(x)
+            x1 = self.upsample(tmp)
             x1 = self.final_conv(x1)
             x1 = self.mean_inverse_shift(x1)
 
             x2 = self.aux_conv(tmp)
 
-            x3 = self.real_criterion(tmp)
+            x3 = self.real_criterion(x)
             x3 = self.sigmoid(x3)
 
             return x1, x2, x3
