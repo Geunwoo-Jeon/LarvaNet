@@ -47,7 +47,7 @@ class MSRR(BaseModel):
 
         parser.add_argument('--num_lr_blocks', type=int, default=4, help='The number of residual blocks at LR domain.')
         parser.add_argument('--num_hr_blocks', type=int, default=4, help='The number of residual blocks at HR domain.')
-        parser.add_argument('--num_hr_filters', type=int, default=12, help='The number of filters at HR domain.')
+        parser.add_argument('--num_hr_filters', type=int, default=3, help='The number of filters at HR domain.')
         parser.add_argument('--hr_filter_size', type=int, default=3, help='The size of filters at HR domain.')
         parser.add_argument('--interpolate', type=str, default='bilinear', help='Interpolation method.')
 
@@ -196,13 +196,15 @@ class MSRRModule(nn.Module):
             self.hr_conv = nn.Conv2d(in_channels=3, out_channels=args.num_hr_filters, kernel_size=3, stride=1, padding=1)
             self.hr_res_blocks = nn.Sequential(*hr_res_block_layers)
 
-        self.final_conv = nn.Conv2d(in_channels=args.num_hr_filters, out_channels=3, kernel_size=3, stride=1, padding=1)
+        if args.num_hr_filters != 3:
+            self.final_conv = nn.Conv2d(in_channels=args.num_hr_filters, out_channels=3, kernel_size=3, stride=1, padding=1)
+            initialize_weights(self.final_conv, 0.1)
 
         # activation function
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
 
         # initialization
-        initialize_weights([self.first_conv, self.final_conv], 0.1)
+        initialize_weights(self.first_conv, 0.1)
 
         self.interpolate = args.interpolate
 
@@ -218,7 +220,8 @@ class MSRRModule(nn.Module):
             out = self.lrelu(self.hr_conv(out))
             out = self.hr_res_blocks(out)
 
-        out = self.final_conv(self.lrelu(out))
+        if hasattr(self, 'final_conv'):
+            out = self.final_conv(self.lrelu(out))
 
         base = F.interpolate(x, scale_factor=4, mode=self.interpolate, align_corners=False)
         out += base
