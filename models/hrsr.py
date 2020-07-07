@@ -186,7 +186,7 @@ class MSRRModule(nn.Module):
             self.lr_res_blocks = nn.Sequential(*lr_res_block_layers)
 
         self.upsample = nn.PixelShuffle(scale)
-        self.middle_conv = nn.Conv2d(in_channels=3, out_channels=12, kernel_size=3, stride=1, padding=1)
+        self.middle_conv = nn.Conv2d(in_channels=3, out_channels=args.num_hr_filters, kernel_size=3, stride=1, padding=1)
 
         hr_res_block_layers = []
         for i in range(args.num_hr_blocks):
