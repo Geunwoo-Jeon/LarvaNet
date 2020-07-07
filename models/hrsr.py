@@ -157,9 +157,11 @@ class ResidualBlock(nn.Module):
         super(ResidualBlock, self).__init__()
 
         self.body = nn.Sequential(
-            nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=filter_size, stride=1, padding=1),
+            nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=filter_size, stride=1,
+                      padding=int((filter_size-1)/2)),
             nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=filter_size, stride=1, padding=1)
+            nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=filter_size, stride=1,
+                      padding=int((filter_size-1)/2))
         )
         # initialization
         initialize_weights(self.body, 0.1)
@@ -194,7 +196,7 @@ class MSRRModule(nn.Module):
         if args.num_hr_blocks > 0:
             self.hr_res_blocks = nn.Sequential(*hr_res_block_layers)
 
-        self.final_conv = nn.Conv2d(in_channels=12, out_channels=3, kernel_size=3, stride=1, padding=1)
+        self.final_conv = nn.Conv2d(in_channels=args.num_hr_filters, out_channels=3, kernel_size=3, stride=1, padding=1)
 
         # activation function
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
@@ -207,11 +209,14 @@ class MSRRModule(nn.Module):
     def forward(self, x):
         out = self.lrelu(self.first_conv(x))
 
-        out = self.lr_res_blocks(out)
-        out = self.upsample(out)
+        if hasattr(self, 'lr_res_blocks'):
+            out = self.lr_res_blocks(out)
 
+        out = self.upsample(out)
         out = self.lrelu(self.middle_conv(out))
-        out = self.hr_res_blocks(out)
+
+        if hasattr(self, 'hr_res_blocks'):
+            out = self.hr_res_blocks(out)
 
         out = self.final_conv(self.lrelu(out))
 
