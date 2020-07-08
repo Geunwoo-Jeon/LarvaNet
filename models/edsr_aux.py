@@ -101,7 +101,7 @@ class EDSR(BaseModel):
         return loss
 
     def train_step(self, input_list, scale, truth_list, summary=None, train_kind=True):
-        lmbda = 0.1
+        lmbda = 0.05
         # numpy to torch
         input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
         truth_tensor = torch.tensor(truth_list, dtype=torch.float32, device=self.device)
