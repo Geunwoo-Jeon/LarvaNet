@@ -207,7 +207,7 @@ class EDSR_MAXL(BaseModel):
         input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
 
         # get SR
-        output_tensor = self.model(input_tensor)
+        output_tensor, _ = self.model(input_tensor)
 
         # finalize
         return output_tensor.detach().cpu().numpy()
