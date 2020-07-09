@@ -202,7 +202,7 @@ class MSRRModule(nn.Module):
         for i in range(args.num_hr_blocks):
             hr_res_block_layers.append(ResidualBlock(num_channels=args.num_hr_filters, filter_size=args.hr_filter_size))
         if args.num_hr_blocks > 0:
-            self.middle_conv = nn.Conv2d(in_channels=3, out_channels=args.num_hr_filters, kernel_size=3, stride=1, padding=1)
+            self.hr_conv = nn.Conv2d(in_channels=3, out_channels=args.num_hr_filters, kernel_size=3, stride=1, padding=1)
             self.hr_res_blocks = nn.Sequential(*hr_res_block_layers)
 
         if args.num_hr_filters != 3:
@@ -226,7 +226,7 @@ class MSRRModule(nn.Module):
         out = self.upsample(out)
 
         if hasattr(self, 'hr_res_blocks'):
-            out = self.lrelu(self.middle_conv(out))
+            out = self.lrelu(self.hr_conv(out))
             out = self.hr_res_blocks(out)
 
         if hasattr(self, 'final_conv'):

@@ -18,22 +18,16 @@ class DIV2KLoader(BaseLoader):
 
   
   def parse_args(self, args):
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--data_input_path', type=str, default='c:/aim2020/data/DIV2K_train_LR_bicubic', help='Base path of the input images. For example, if you specify this argument to \'LR\', the downscaled images by a factor of 4 should be in \'LR/X4/\'.')
-    parser.add_argument('--data_truth_path', type=str, default='c:/aim2020/data/DIV2K_train_HR', help='Base path of the ground-truth images.')
-    parser.add_argument('--data_cached', action='store_true', help='If true, cache the data on the memory.')
-
-    self.args, remaining_args = parser.parse_known_args(args=args)
-    return copy.deepcopy(self.args), remaining_args
+    return None, None
 
 
   def prepare(self, scales):
     self.scale_list = scales
 
     # retrieve image name list
-    input_path = os.path.join(self.args.data_truth_path)
+    input_path = os.path.join('c:/aim2020/data/DIV2K_train_HR')
     self.image_name_list = [os.path.splitext(f)[0] for f in os.listdir(input_path) if f.lower().endswith('.png')]
-    print('data: %d images are prepared (%s)' % (len(self.image_name_list), 'caching enabled' if self.args.data_cached else 'caching disabled'))
+    print('data: %d images are prepared (%s)' % (len(self.image_name_list), 'caching enabled'))
     
     # initialize cached list
     self.cached_input_image_list = {}
@@ -111,16 +105,15 @@ class DIV2KLoader(BaseLoader):
   def _get_input_image(self, scale, image_name):
     image = None
     has_cached = False
-    if (self.args.data_cached):
-      if (image_name in self.cached_input_image_list[scale]):
-        image = self.cached_input_image_list[scale][image_name]
-        has_cached = True
+    if (image_name in self.cached_input_image_list[scale]):
+      image = self.cached_input_image_list[scale][image_name]
+      has_cached = True
     
     if (image is None):
-      image_path = os.path.join(self.args.data_input_path, ('X%d' % (scale)), ('%sx%d.png' % (image_name, scale)))
+      image_path = os.path.join('c:/aim2020/data/DIV2K_train_LR_bicubic', ('X%d' % (scale)), ('%sx%d.png' % (image_name, scale)))
       image = self._load_image(image_path)
     
-    if (self.args.data_cached and (not has_cached)):
+    if (not has_cached):
       self.cached_input_image_list[scale][image_name] = image
     
     return image
@@ -129,16 +122,15 @@ class DIV2KLoader(BaseLoader):
   def _get_truth_image(self, image_name):
     image = None
     has_cached = False
-    if (self.args.data_cached):
-      if (image_name in self.cached_truth_image_list):
-        image = self.cached_truth_image_list[image_name]
-        has_cached = True
+    if (image_name in self.cached_truth_image_list):
+      image = self.cached_truth_image_list[image_name]
+      has_cached = True
     
     if (image is None):
-      image_path = os.path.join(self.args.data_truth_path, ('%s.png' % (image_name)))
+      image_path = os.path.join('c:/aim2020/data/DIV2K_train_HR', ('%s.png' % (image_name)))
       image = self._load_image(image_path)
     
-    if (self.args.data_cached and (not has_cached)):
+    if (not has_cached):
       self.cached_truth_image_list[image_name] = image
     
     return image

@@ -14,7 +14,7 @@ def main():
   # parse arguments
   parser = argparse.ArgumentParser()
 
-  parser.add_argument('--dataloader', type=str, default='div2k_loader', help='Name of the data loader.')
+  parser.add_argument('--dataloader', type=str, default='div2k_train_loader', help='Name of the data loader.')
   parser.add_argument('--model', type=str, default='edsr', help='Name of the model.')
 
   parser.add_argument('--batch_size', type=int, default=16, help='Size of the batches for each training step.')
@@ -73,7 +73,7 @@ def main():
   
   # save arguments
   arguments_path = os.path.join(args.train_path, 'arguments.json')
-  all_args = {**vars(args), **vars(dataloader_args), **vars(model_args)}
+  all_args = {**vars(args), **vars(model_args)}
   with open(arguments_path, 'w') as f:
     f.write(json.dumps(all_args, sort_keys=True, indent=2))
 
@@ -96,7 +96,7 @@ def main():
       time.sleep(min(10.0, duration*args.sleep_ratio))
 
     if (local_train_step % args.log_freq == 0):
-      print('step %d, scale x%d, loss %.6f (%.3f sec/batch)' % (global_train_step, scale, loss, duration))
+      print('step %d, lr %f, loss %.6f (%.3f sec/batch)' % (global_train_step, model.optim.param_groups[0]['lr'], loss, duration))
     
     if (local_train_step % args.save_freq == 0):
       model.save(base_path=args.train_path)

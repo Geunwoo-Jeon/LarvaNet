@@ -19,7 +19,7 @@ def main():
   # parse arguments
   parser = argparse.ArgumentParser()
 
-  parser.add_argument('--dataloader', type=str, default='div2k_loader', help='Name of the data loader.')
+  parser.add_argument('--dataloader', type=str, default='div2k_val_loader', help='Name of the data loader.')
   parser.add_argument('--model', type=str, default='edsr', help='Name of the model.')
 
   parser.add_argument('--scales', type=str, default='4', help='Scales of the input images. Use the \',\' character to specify multiple scales (e.g., 2,3,4).')
