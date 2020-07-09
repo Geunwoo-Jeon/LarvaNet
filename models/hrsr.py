@@ -9,7 +9,6 @@ import torch
 import torch.nn as nn
 import torch.nn.init as init
 import torch.optim as optim
-from warmup_scheduler import GradualWarmupScheduler
 import torch.nn.functional as F
 
 from models.base import BaseModel
