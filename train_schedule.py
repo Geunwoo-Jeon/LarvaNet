@@ -6,11 +6,17 @@ import time
 
 import dataloaders
 import models
-import PSNR_trend
+import validate
 
 import torch
 import numpy as np
 from torch.utils.tensorboard import SummaryWriter
+from math import log10, floor
+
+
+def round_to_1(x):
+    return round(x, -int(floor(log10(abs(x)))))
+
 
 def main():
     # parse arguments
@@ -22,6 +28,7 @@ def main():
 
     parser.add_argument('--batch_size', type=int, default=16, help='Size of the batches for each training step.')
     parser.add_argument('--input_patch_size', type=int, default=48, help='Size of each input image patch.')
+    parser.add_argument('--step_per_epoch', type=float, help='Num of steps on 1 epoch.')
     parser.add_argument('--scales', type=str, default='4',
                         help='Scales of the input images. Use the \',\' character to specify multiple scales (e.g., 2,3,4).')
     parser.add_argument('--cuda_device', type=str, default='0',
@@ -42,7 +49,6 @@ def main():
     parser.add_argument('--global_step', type=int, default=0,
                         help='Initial global step. Specify this to resume the training.')
 
-    parser.add_argument('--validate_freq', type=int, default=1000, help='Frequency of validation for lr scheduling.')
 
     args, remaining_args = parser.parse_known_args()
 
@@ -90,17 +96,23 @@ def main():
     with open(arguments_path, 'w') as f:
         f.write(json.dumps(all_args, sort_keys=True, indent=2))
 
+    if args.step_per_epoch is None:
+        batch_data_size = (args.input_patch_size**2)*args.batch_size*3
+        dataset_size = 300*(1024**2)
+        step_per_epoch = round_to_1(dataset_size/batch_data_size)
+    else:
+        step_per_epoch = args.step_per_epoch
+
     # train
     print('begin training')
-    local_train_step = 0
-    while model.global_step < 3000 or model.get_lr() >= 1e-8:
-        local_train_step += 1
+    print(f'{step_per_epoch} steps equal to 1 epoch')
+    while True:
+        model.global_step += 1
 
         start_time = time.time()
 
         scale = model.get_next_train_scale()
-        summary = summary_writers[scale] if (local_train_step % args.summary_freq == 0) else None
-        validation = local_train_step >= 3000 and (local_train_step % args.validate_freq == 0)
+        summary = summary_writers[scale] if (model.global_step % args.summary_freq == 0) else None
         input_list, truth_list = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale,
                                                             input_patch_size=args.input_patch_size)
 
@@ -118,7 +130,7 @@ def main():
         model.optim.step()
 
         # scheduling lr by validation
-        if validation:
+        if model.global_step % step_per_epoch == 0:
             print('begin validation')
             num_images = dataloader_val.get_num_images()
             psnr_list = []
@@ -127,24 +139,23 @@ def main():
                 input_image, truth_image, image_name = dataloader_val.get_image_pair(image_index=image_index,
                                                                                      scale=scale)
                 output_image = model.upscale(input_list=[input_image], scale=scale)[0]
-                truth_image = PSNR_trend._image_to_uint8(truth_image)
-                output_image = PSNR_trend._image_to_uint8(output_image)
-                truth_image = PSNR_trend._fit_truth_image_size(output_image=output_image, truth_image=truth_image)
+                truth_image = validate._image_to_uint8(truth_image)
+                output_image = validate._image_to_uint8(output_image)
+                truth_image = validate._fit_truth_image_size(output_image=output_image, truth_image=truth_image)
 
-                psnr = PSNR_trend._image_psnr(output_image=output_image, truth_image=truth_image)
+                psnr = validate._image_psnr(output_image=output_image, truth_image=truth_image)
                 psnr_list.append(psnr)
 
             average_psnr = np.mean(psnr_list)
-            print(f'step {model.global_step}, psnr={average_psnr:.8f}, lr = {model.get_lr():.10f}')
+            print(f'step {model.global_step}, epoch {model.global_step/step_per_epoch:.0f}, psnr={average_psnr:.8f}, lr = {model.get_lr():.10f}')
             model.lr_scheduler.step(average_psnr)
 
-        # scheduler
-        lr = model.get_lr()
-
-        # finalize
-        model.global_step += 1
+            # save model after each validation
+            model.save(base_path=args.train_path)
+            print('saved a model checkpoint at step %d' % model.global_step)
 
         # write summary
+        lr = model.get_lr()
         if summary is not None:
             summary.add_scalar('loss', loss, model.global_step)
             summary.add_scalar('lr', lr, model.global_step)
@@ -156,15 +167,11 @@ def main():
                 summary.add_image('truth/%d' % i, truth_list[i], model.global_step)
 
         duration = time.time() - start_time
-        if (args.sleep_ratio > 0 and duration > 0):
+        if args.sleep_ratio > 0 and duration > 0:
             time.sleep(min(10.0, duration * args.sleep_ratio))
 
-        if (local_train_step < 1000) and (local_train_step % args.log_freq == 0):
+        if model.global_step < step_per_epoch and model.global_step % args.log_freq == 0:
             print('step %d, lr %.10f, loss %.6f (%.3f sec/batch)' % (model.global_step, lr, loss, duration))
-
-        if (local_train_step % args.save_freq == 0):
-            model.save(base_path=args.train_path)
-            print('saved a model checkpoint at step %d' % (model.global_step))
 
     # finalize
     print('finished')

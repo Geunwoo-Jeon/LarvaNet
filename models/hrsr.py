@@ -55,6 +55,7 @@ class MSRR(BaseModel):
         parser.add_argument('--lr', type=float, default=1e-3, help='Initial learning rate.')
         parser.add_argument('--lr_decay', type=float, default=0.5, help='Learning rate decay factor.')
         parser.add_argument('--threshold', type=float, default=0.005, help='Learning rate decay factor.')
+        parser.add_argument('--min_lr', type=float, default=1e-5, help='Initial learning rate.')
         parser.add_argument('--cooldown', type=float, default=0, help='cooldown for reduce lr')
         parser.add_argument('--learning_rate_decay_steps', type=int, default=200000,
                             help='The number of training steps to perform learning rate decay.')
@@ -84,7 +85,7 @@ class MSRR(BaseModel):
             self.loss_fn = nn.L1Loss()
             self.lr_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
                 self.optim, mode='max', factor=self.args.lr_decay, patience=1, threshold=self.args.threshold,
-                threshold_mode='abs', cooldown=self.args.cooldown, min_lr=0, verbose=True)
+                threshold_mode='abs', cooldown=self.args.cooldown, min_lr=self.args.min_lr, verbose=True)
 
         # configure device
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

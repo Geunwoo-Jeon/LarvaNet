@@ -60,7 +60,6 @@ def main():
   print('prepare data loader - %s' % (args.dataloader))
   DATALOADER_MODULE = importlib.import_module('dataloaders.' + args.dataloader)
   dataloader = DATALOADER_MODULE.create_loader()
-  _, remaining_args = dataloader.parse_args(remaining_args)
   dataloader.prepare(scales=scale_list)
 
   # model
