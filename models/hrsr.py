@@ -106,8 +106,8 @@ class MSRR(BaseModel):
 
     def train_step(self, input_list, scale, truth_list, summary=None):
         # numpy to torch
-        input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
-        truth_tensor = torch.tensor(truth_list, dtype=torch.float32, device=self.device)
+        input_tensor = torch.as_tensor(input_list, dtype=torch.float32, device=self.device)
+        truth_tensor = torch.as_tensor(truth_list, dtype=torch.float32, device=self.device)
 
         # get SR and calculate loss
         output_tensor = self.model(input_tensor)
