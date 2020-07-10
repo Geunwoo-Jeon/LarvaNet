@@ -128,26 +128,26 @@ def main():
             dataload_time = time.time() - start_time
 
             # numpy to torch
-            start_time = time.time()
+            check_time = time.time()
             input_tensor = torch.as_tensor(input_list, dtype=torch.float32, device=model.device)
             truth_tensor = torch.as_tensor(truth_list, dtype=torch.float32, device=model.device)
-            np2ts_time = time.time() - start_time
+            np2ts_time = time.time() - check_time
 
             # get SR and calculate loss
-            start_time = time.time()
+            check_time = time.time()
             output_tensor = model.model(input_tensor)
             loss = model.loss_fn(output_tensor, truth_tensor)
-            fwd_loss_time = time.time() - start_time
+            fwd_loss_time = time.time() - check_time
 
             # do back propagation
-            start_time = time.time()
+            check_time = time.time()
             model.optim.zero_grad()
             loss.backward()
             model.optim.step()
-            back_prop_time = time.time() - start_time
+            back_prop_time = time.time() - check_time
 
             # scheduling lr by validation
-            if model.global_step % step_per_epoch == 0:
+            if model.global_step % (10*step_per_epoch) == 0:
                 print('begin validation')
                 num_images = dataloader_val.get_num_images()
                 psnr_list = []
@@ -177,13 +177,15 @@ def main():
                 summary.add_scalar('loss', loss, model.global_step)
                 summary.add_scalar('lr', lr, model.global_step)
 
+                input_tensor_uint8 = input_tensor.clamp(0, 255).byte()
                 output_tensor_uint8 = output_tensor.clamp(0, 255).byte()
+                truth_tensor_uint8 = truth_tensor.clamp(0, 255).byte()
                 for i in range(min(4, len(input_list))):
-                    summary.add_image('input/%d' % i, input_list[i], model.global_step)
+                    summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], model.global_step)
                     summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], model.global_step)
-                    summary.add_image('truth/%d' % i, truth_list[i], model.global_step)
+                    summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], model.global_step)
 
-            duration = time.time() - start_time
+            duration =time.time() - start_time
             if args.sleep_ratio > 0 and duration > 0:
                 time.sleep(min(10.0, duration * args.sleep_ratio))
 
