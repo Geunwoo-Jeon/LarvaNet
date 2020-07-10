@@ -84,8 +84,8 @@ class EDSR_MAXL(BaseModel):
 
     def train_step(self, input_list, scale, truth_list, summary=None, stage=0):
         # numpy to torch
-        input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
-        truth_tensor = torch.tensor(truth_list, dtype=torch.float32, device=self.device)
+        input_tensor = torch.as_tensor(input_list, dtype=torch.float32, device=self.device)
+        truth_tensor = torch.as_tensor(truth_list, dtype=torch.float32, device=self.device)
         lmbda = 0.1
         lr_tmp = 0.001
 
@@ -127,15 +127,18 @@ class EDSR_MAXL(BaseModel):
                 summary.add_scalar('loss_entropy', loss_entropy, self.global_step)
                 summary.add_scalar('lr', lr, self.global_step)
 
+                input_tensor_uint8 = input_tensor.clamp(0, 255).byte()
+                truth_tensor_uint8 = truth_tensor.clamp(0, 255).byte()
+
                 output_tensor1_uint8 = output_tensor1.clamp(0, 255).byte()
                 output_tensor2_uint8 = torch.mul(output_tensor2, 255.0).clamp(0, 255).byte()
                 output_tensor3_uint8 = torch.mul(output_tensor3, 255.0).clamp(0, 255).byte()
                 for i in range(min(4, len(input_list))):
-                    summary.add_image('input/%d' % i, input_list[i], self.global_step)
+                    summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], self.global_step)
                     summary.add_image('output1/%d' % i, output_tensor1_uint8[i, :, :, :], self.global_step)
                     summary.add_image('output2/%d' % i, output_tensor2_uint8[i, :, :, :], self.global_step)
                     summary.add_image('output3/%d' % i, output_tensor3_uint8[i, :, :, :], self.global_step)
-                    summary.add_image('truth/%d' % i, truth_list[i], self.global_step)
+                    summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.global_step)
 
             return loss1.item()
 
