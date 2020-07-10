@@ -77,36 +77,53 @@ def main():
   with open(arguments_path, 'w') as f:
     f.write(json.dumps(all_args, sort_keys=True, indent=2))
 
+  # start fetching data
+  if (dataloader.is_threaded):
+    dataloader.start_training_queue_runner(batch_size=args.batch_size, input_patch_size=args.input_patch_size)
+  
   # train
   print('begin training')
   local_train_step = 0
-  while (model.global_step < args.max_steps):
-    global_train_step = model.global_step + 1
-    local_train_step += 1
+  try:
+    while (model.global_step < args.max_steps):
+      global_train_step = model.global_step + 1
+      local_train_step += 1
 
-    start_time = time.time()
+      start_time = time.time()
 
-    scale = model.get_next_train_scale()
-    summary = summary_writers[scale] if (local_train_step % args.summary_freq == 0) else None
-    input_list, truth_list = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale, input_patch_size=args.input_patch_size)
-    loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary)
+      scale = model.get_next_train_scale()
+      summary = summary_writers[scale] if (local_train_step % args.summary_freq == 0) else None
 
-    duration = time.time() - start_time
-    if (args.sleep_ratio > 0 and duration > 0):
-      time.sleep(min(10.0, duration*args.sleep_ratio))
+      if (dataloader.is_threaded):
+        input_list, truth_list = dataloader.get_queue_data(scale=scale)
+      else:
+        input_list, truth_list = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale, input_patch_size=args.input_patch_size)
+      
+      loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary)
 
-    if (local_train_step % args.log_freq == 0):
-      print('step %d, scale x%d, loss %.6f (%.3f sec/batch)' % (global_train_step, scale, loss, duration))
-    
-    if (local_train_step % args.save_freq == 0):
-      model.save(base_path=args.train_path)
-      print('saved a model checkpoint at step %d' % (global_train_step))
+      duration = time.time() - start_time
+      if (args.sleep_ratio > 0 and duration > 0):
+        time.sleep(min(10.0, duration*args.sleep_ratio))
 
+      if (local_train_step % args.log_freq == 0):
+        print('step %d, scale x%d, loss %.6f (%.3f sec/batch)' % (global_train_step, scale, loss, duration))
+      
+      if (local_train_step % args.save_freq == 0):
+        model.save(base_path=args.train_path)
+        print('saved a model checkpoint at step %d' % (global_train_step))
+  
+  except KeyboardInterrupt:
+    print('interrupted (KeyboardInterrupt)')
+    pass
+  except Exception as e:
+    print(e)
     
   # finalize
   print('finished')
   for scale in scale_list:
     summary_writers[scale].close()
+  if (dataloader.is_threaded):
+    dataloader.stop_queue_runners()
 
 
 
