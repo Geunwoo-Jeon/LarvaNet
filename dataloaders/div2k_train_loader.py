@@ -1,6 +1,8 @@
 import argparse
 import copy
 import os
+import queue
+import threading
 
 import numpy as np
 import cv2 as cv
@@ -19,6 +21,7 @@ class DIV2KLoader(BaseLoader):
     self.is_threaded = True
 
     self.data_queue_list = {}
+    self.data_num_queue_runners = 4
     self.queue_runners = []
     self.stop_queue_runner_toggle = False
 
@@ -121,7 +124,7 @@ class DIV2KLoader(BaseLoader):
     self.queue_input_patch_size = input_patch_size
 
     for scale in self.scale_list:
-      for _ in range(self.args.data_num_queue_runners):
+      for _ in range(self.data_num_queue_runners):
         queue_runner = threading.Thread(target=self._training_queue_runner, args=[scale])
         queue_runner.start()
         self.queue_runners.append(queue_runner)
@@ -158,7 +161,7 @@ class DIV2KLoader(BaseLoader):
       except:
         pass
 
-      
+
   def _get_input_image(self, scale, image_name):
     image = None
     has_cached = False
