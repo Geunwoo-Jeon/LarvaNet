@@ -76,8 +76,8 @@ class EDSR(BaseModel):
 
     def train_step(self, input_list, scale, truth_list, summary=None):
         # numpy to torch
-        input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
-        truth_tensor = torch.tensor(truth_list, dtype=torch.float32, device=self.device)
+        input_tensor = torch.as_tensor(input_list, dtype=torch.float32, device=self.device)
+        truth_tensor = torch.as_tensor(truth_list, dtype=torch.float32, device=self.device)
 
         # get SR and calculate loss
         output_tensor = self.model(input_tensor)
@@ -101,11 +101,13 @@ class EDSR(BaseModel):
             summary.add_scalar('loss', loss, self.global_step)
             summary.add_scalar('lr', lr, self.global_step)
 
+            input_tensor_uint8 = input_tensor.clamp(0, 255).byte()
             output_tensor_uint8 = output_tensor.clamp(0, 255).byte()
+            truth_tensor_uint8 = truth_tensor.clamp(0, 255).byte()
             for i in range(min(4, len(input_list))):
-                summary.add_image('input/%d' % i, input_list[i], self.global_step)
+                summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], self.global_step)
                 summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.global_step)
-                summary.add_image('truth/%d' % i, truth_list[i], self.global_step)
+                summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.global_step)
 
         return loss.item()
 

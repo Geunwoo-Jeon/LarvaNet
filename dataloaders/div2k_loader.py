@@ -1,6 +1,8 @@
 import argparse
 import copy
 import os
+import queue
+import threading
 import torch.nn.functional as F
 
 import numpy as np
@@ -17,6 +19,12 @@ class DIV2KLoader(BaseLoader):
   def __init__(self):
     super().__init__()
 
+    self.is_threaded = True
+
+    self.data_queue_list = {}
+    self.queue_runners = []
+    self.stop_queue_runner_toggle = False
+
   
   def parse_args(self, args):
     parser = argparse.ArgumentParser()
@@ -25,6 +33,7 @@ class DIV2KLoader(BaseLoader):
     parser.add_argument('--data_cached', action='store_true', help='If true, cache the data on the memory.')
     parser.add_argument('--isHsv', action='store_true',
                         help='Convert color space to hsv.')
+    parser.add_argument('--data_num_queue_runners', type=int, default=4, help='The number of queue runners.')
 
     self.args, remaining_args = parser.parse_known_args(args=args)
     return copy.deepcopy(self.args), remaining_args
@@ -38,6 +47,10 @@ class DIV2KLoader(BaseLoader):
     self.image_name_list = [os.path.splitext(f)[0] for f in os.listdir(input_path) if f.lower().endswith('.png')]
     print('data: %d images are prepared (%s)' % (len(self.image_name_list), 'caching enabled' if self.args.data_cached else 'caching disabled'))
     
+    # initialize queue list
+    for scale in self.scale_list:
+      self.data_queue_list[scale] = queue.Queue(maxsize=16)
+
     # initialize cached list
     self.cached_input_image_list = {}
     for scale in self.scale_list:
@@ -58,7 +71,7 @@ class DIV2KLoader(BaseLoader):
       input_list.append(input_patch)
       truth_list.append(truth_patch)
     
-    return input_list, truth_list
+    return np.array(input_list).copy(), np.array(truth_list).copy()
   
 
   def get_random_image_patch_pair(self, scale, input_patch_size):
@@ -112,6 +125,54 @@ class DIV2KLoader(BaseLoader):
     return input_image, truth_image, image_name
 
 
+
+  def start_training_queue_runner(self, batch_size, input_patch_size):
+    self.stop_queue_runners()
+    self.stop_queue_runner_toggle = False
+
+    self.queue_batch_size = batch_size
+    self.queue_input_patch_size = input_patch_size
+
+    for scale in self.scale_list:
+      for _ in range(self.args.data_num_queue_runners):
+        queue_runner = threading.Thread(target=self._training_queue_runner, args=[scale])
+        queue_runner.start()
+        self.queue_runners.append(queue_runner)
+
+
+  def stop_queue_runners(self):
+    if (len(self.queue_runners) <= 0):
+      return
+
+    self.stop_queue_runner_toggle = True
+    while (len(self.queue_runners) > 0):
+      try:
+        queue_runner = self.queue_runners.pop()
+        queue_runner.join()
+      except:
+        pass
+
+
+  def get_queue_data(self, scale):
+    if (len(self.queue_runners) <= 0):
+      return None
+
+    return self.data_queue_list[scale].get()
+
+
+  def _training_queue_runner(self, scale):
+    while True:
+      if (self.stop_queue_runner_toggle):
+        break
+
+      try:
+        batch_data = self.get_patch_batch(batch_size=self.queue_batch_size, scale=scale, input_patch_size=self.queue_input_patch_size)
+        self.data_queue_list[scale].put(batch_data, block=True, timeout=15)
+      except:
+        pass
+
+
+
   def _get_input_image(self, scale, image_name):
     image = None
     has_cached = False
@@ -157,4 +218,5 @@ class DIV2KLoader(BaseLoader):
     else:
       image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
     image = np.transpose(image, [2, 0, 1])
+    image = image.astype(np.float32)
     return image

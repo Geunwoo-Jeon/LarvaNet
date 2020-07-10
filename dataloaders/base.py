@@ -9,7 +9,7 @@ def create_loader():
 class BaseLoader():
 
   def __init__(self):
-    pass
+    self.is_threaded = False
   
   def parse_args(self, args):
     """
@@ -82,5 +82,30 @@ class BaseLoader():
       scale: Scale of the input image.
     Returns:
       A tuple of (input image, ground-truth image, image_name).
+    """
+    raise NotImplementedError
+
+  def start_training_queue_runner(self, batch_size, input_patch_size):
+    """
+    Start queue runner for training data. Supported only on threaded data loaders.
+    Args:
+      batch_size: The number of image patches.
+      input_patch_size: Size of the input image patches.
+    """
+    raise NotImplementedError
+
+  def stop_queue_runners(self):
+    """
+    Stop queue runners. Supported only on threaded data loaders.
+    """
+    raise NotImplementedError
+
+  def get_queue_data(self, scale):
+    """
+    Retrieve data from queue. Supported only on threaded data loaders.
+    Args:
+      scale: Scale of the input image.
+    Returns:
+      A tuple of (input image patch list, ground-truth image patch list).
     """
     raise NotImplementedError
