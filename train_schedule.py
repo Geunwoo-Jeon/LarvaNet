@@ -109,25 +109,32 @@ def main():
     while True:
         model.global_step += 1
 
-        start_time = time.time()
-
         scale = model.get_next_train_scale()
         summary = summary_writers[scale] if (model.global_step % args.summary_freq == 0) else None
+
+        start_time = time.time()
         input_list, truth_list = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale,
                                                             input_patch_size=args.input_patch_size)
+        dataload_time = time.time() - start_time
 
         # numpy to torch
+        start_time = time.time()
         input_tensor = torch.tensor(input_list, dtype=torch.float32, device=model.device)
         truth_tensor = torch.tensor(truth_list, dtype=torch.float32, device=model.device)
+        np2ts_time = time.time() - start_time
 
         # get SR and calculate loss
+        start_time = time.time()
         output_tensor = model.model(input_tensor)
         loss = model.loss_fn(output_tensor, truth_tensor)
+        fwd_loss_time = time.time() - start_time
 
         # do back propagation
+        start_time = time.time()
         model.optim.zero_grad()
         loss.backward()
         model.optim.step()
+        back_prop_time = time.time() - start_time
 
         # scheduling lr by validation
         if model.global_step % step_per_epoch == 0:
@@ -172,6 +179,8 @@ def main():
 
         if model.global_step < step_per_epoch and model.global_step % args.log_freq == 0:
             print('step %d, lr %.10f, loss %.6f (%.3f sec/batch)' % (model.global_step, lr, loss, duration))
+            print(f'dataload_time:{dataload_time:.4f}s, np2ts_time:{np2ts_time:.4f}s, '
+                  f'fwd_loss_time: {fwd_loss_time:.4f}s, back_prop_time: {back_prop_time}s')
 
     # finalize
     print('finished')

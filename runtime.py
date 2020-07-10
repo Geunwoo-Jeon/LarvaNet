@@ -56,16 +56,21 @@ def main():
     runtime_list = []
 
     for image_index in range(num_images):
+      start_time = time.perf_counter()
       input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index, scale=scale)
+      im_load_time = time.perf_counter() - start_time
 
+      start_time = time.perf_counter()
       input_tensor = torch.tensor([input_image], dtype=torch.float32, device='cuda')
+      im_tf_time = time.perf_counter() - start_time
+
       start_time = time.perf_counter()
       output_tenser = model.fwd_runtime(input_tensor=input_tensor)
-      end_time = time.perf_counter()
+      runtime = time.perf_counter() - start_time
 
-      runtime = end_time - start_time
       runtime_list.append(runtime)
-      print(f'{image_index+1}/{num_images}, runtime={runtime:.4f}')
+      print(f'{image_index+1}/{num_images}, image load time={im_load_time:.4f},'
+            f'image transform time={im_tf_time:.4f}, runtime={runtime:.4f}')
     average_runtime = np.mean(runtime_list)
     print(f'runtime={average_runtime:.4f}')
 
