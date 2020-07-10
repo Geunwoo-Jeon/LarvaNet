@@ -164,8 +164,11 @@ def main():
                     psnr_list.append(psnr)
 
                 average_psnr = np.mean(psnr_list)
-                print(f'step {model.global_step}, epoch {model.global_step/step_per_epoch:.0f}, psnr={average_psnr:.8f}, lr = {model.get_lr():.10f}')
-                model.lr_scheduler.step(average_psnr)
+                print(f'step {model.global_step}, epoch {model.global_step/step_per_epoch:.0f},'
+                      f' psnr={average_psnr:.8f}, lr = {model.get_lr():.10f}')
+
+                if hasattr(model, 'lr_scheduler'):
+                    model.lr_scheduler.step(average_psnr)
 
                 # save model after each validation
                 model.save(base_path=args.train_path)
