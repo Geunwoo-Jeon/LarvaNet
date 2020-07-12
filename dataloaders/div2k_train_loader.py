@@ -27,14 +27,21 @@ class DIV2KLoader(BaseLoader):
 
   
   def parse_args(self, args):
-    return None, None
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--train_input_path', type=str, default='c:/aim2020/data/DIV2K_train_LR_bicubic',
+                        help='Base path of the input images.')
+    parser.add_argument('--train_truth_path', type=str, default='c:/aim2020/data/DIV2K_train_HR',
+                        help='Base path of the ground-truth images.')
+    parser.add_argument('--data_cached', action='store_true', help='If true, cache the data on the memory.')
 
+    self.args, remaining_args = parser.parse_known_args(args=args)
+    return copy.deepcopy(self.args), remaining_args
 
   def prepare(self, scales):
     self.scale_list = scales
 
     # retrieve image name list
-    input_path = os.path.join('c:/aim2020/data/DIV2K_train_HR')
+    input_path = os.path.join(self.args.train_truth_path)
     self.image_name_list = [os.path.splitext(f)[0] for f in os.listdir(input_path) if f.lower().endswith('.png')]
     print('data: %d images are prepared (%s)' % (len(self.image_name_list), 'caching enabled'))
 
@@ -170,7 +177,7 @@ class DIV2KLoader(BaseLoader):
       has_cached = True
     
     if (image is None):
-      image_path = os.path.join('c:/aim2020/data/DIV2K_train_LR_bicubic', ('X%d' % (scale)), ('%sx%d.png' % (image_name, scale)))
+      image_path = os.path.join(self.args.train_truth_path, ('X%d' % (scale)), ('%sx%d.png' % (image_name, scale)))
       image = self._load_image(image_path)
     
     if (not has_cached):
@@ -187,7 +194,7 @@ class DIV2KLoader(BaseLoader):
       has_cached = True
     
     if (image is None):
-      image_path = os.path.join('c:/aim2020/data/DIV2K_train_HR', ('%s.png' % (image_name)))
+      image_path = os.path.join(self.args.train_truth_path, ('%s.png' % (image_name)))
       image = self._load_image(image_path)
     
     if (not has_cached):

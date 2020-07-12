@@ -21,7 +21,7 @@ def main():
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--dataloader', type=str, default='div2k_train_loader', help='Name of the data loader.')
-    parser.add_argument('--dataloader_val', type=str, default='div2k_val_loader', help='Name of the data loader.')
+    parser.add_argument('--val_dataloader', type=str, default='div2k_val_loader', help='Name of the data loader.')
     parser.add_argument('--model', type=str, default='edsr', help='Name of the model.')
 
     parser.add_argument('--batch_size', type=int, default=16, help='Size of the batches for each training step.')
@@ -58,9 +58,10 @@ def main():
     print('prepare data loader - %s' % (args.dataloader))
     DATALOADER_MODULE = importlib.import_module('dataloaders.' + args.dataloader)
     dataloader = DATALOADER_MODULE.create_loader()
+    dataloader_args, remaining_args = dataloader.parse_args(remaining_args)
     dataloader.prepare(scales=scale_list)
 
-    DATALOADER_MODULE = importlib.import_module('dataloaders.' + args.dataloader_val)
+    DATALOADER_MODULE = importlib.import_module('dataloaders.' + args.val_dataloader)
     val_dataloader = DATALOADER_MODULE.create_loader()
     val_dataloader.prepare(scales=scale_list)
 
@@ -89,7 +90,7 @@ def main():
 
     # save arguments
     arguments_path = os.path.join(args.train_path, 'arguments.json')
-    all_args = {**vars(args), **vars(model_args)}
+    all_args = {**vars(args), **vars(dataloader_args), **vars(model_args)}
     with open(arguments_path, 'w') as f:
         f.write(json.dumps(all_args, sort_keys=True, indent=2))
 
@@ -110,24 +111,41 @@ def main():
     print(f'{step_per_epoch} steps equal to 1 epoch')
     try:
         while True:
-            model.global_step += 1
-
-            start_time = time.time()
-
+            print('loop start')
             scale = model.get_next_train_scale()
             summary = summary_writers[scale] if (model.global_step % args.summary_freq == 0) else None
-            input_list, truth_list = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale,
-                                                                input_patch_size=args.input_patch_size)
-            loss = model.train_step_squid(args=args, val_dataloader=val_dataloader,
-                                          input_list=input_list, scale=scale, truth_list=truth_list, summary=summary)
+
+            # load data
+            start_time = time.time()
+            if (dataloader.is_threaded):
+                input_list, truth_list = dataloader.get_queue_data(scale=scale)
+            else:
+                input_list, truth_list = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale,
+                                                                    input_patch_size=args.input_patch_size)
+            dataload_time = time.time() - start_time
+
+            # numpy to torch
+            check_time = time.time()
+            input_tensor = torch.as_tensor(input_list, dtype=torch.float32, device=model.device)
+            truth_tensor = torch.as_tensor(truth_list, dtype=torch.float32, device=model.device)
+            np2ts_time = time.time() - check_time
+
+            print('train step start')
+            # train step
+            check_time = time.time()
+            loss = model.train_step_squid(args=args, val_dataloader=val_dataloader, scale=scale,
+                                          input_tensor=input_tensor, truth_tensor=truth_tensor, summary=summary)
+            train_time = time.time() - check_time
+
+            print('loop end')
 
             duration = time.time() - start_time
-
             if args.sleep_ratio > 0 and duration > 0:
                 time.sleep(min(10.0, duration * args.sleep_ratio))
-            lr = model.get_lr()
             if model.global_step < step_per_epoch * 2 and model.global_step % args.log_freq == 0:
                 print('step %d, lr %.10f, loss %.6f (%.3f sec/batch)' % (model.global_step, lr, loss, duration))
+                print(f'dataload_time:{dataload_time:.4f}s, np2ts_time:{np2ts_time:.4f}s, '
+                      f'train_time: {train_time:.4f}s')
     except KeyboardInterrupt:
         print('interrupted (KeyboardInterrupt)')
     except Exception as e:

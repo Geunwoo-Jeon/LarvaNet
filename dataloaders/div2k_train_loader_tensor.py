@@ -1,203 +1,103 @@
 import argparse
 import copy
 import os
-import queue
-import threading
 
+import torch
 import numpy as np
 import cv2 as cv
 
 from .base import BaseLoader
 
+
 # DIV2K dataset loader
 
 def create_loader():
-  return DIV2KLoader()
+    return DIV2KLoader()
+
 
 class DIV2KLoader(BaseLoader):
-  def __init__(self):
-    super().__init__()
+    def __init__(self):
+        super().__init__()
 
-    self.is_threaded = True
+    def parse_args(self, args):
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--train_input_path', type=str, default='c:/aim2020/data/DIV2K_train_LR_bicubic',
+                            help='Base path of the input images.')
+        parser.add_argument('--train_truth_path', type=str, default='c:/aim2020/data/DIV2K_train_HR',
+                            help='Base path of the ground-truth images.')
+        parser.add_argument('--data_cached', action='store_true', help='If true, cache the data on the memory.')
 
-    self.data_queue_list = {}
-    self.data_num_queue_runners = 4
-    self.queue_runners = []
-    self.stop_queue_runner_toggle = False
+        self.args, remaining_args = parser.parse_known_args(args=args)
+        return copy.deepcopy(self.args), remaining_args
 
-  
-  def parse_args(self, args):
-    return None, None
+    def prepare(self, scales):
+        self.scale = scales[0]
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+        # retrieve image name list
+        self.image_name_list = [os.path.splitext(f)[0] for f in os.listdir(self.args.train_truth_path) if f.lower().endswith('.png')]
+        self.num_images = len(self.image_name_list)
 
-  def prepare(self, scales):
-    self.scale_list = scales
+        # make image list
+        self.input_image_list = []
+        self.truth_image_list = []
+        for i, image_name in enumerate(self.image_name_list):
+            image_path = os.path.join(self.args.train_input_path, ('X%d' % self.scale),
+                                      ('%sx%d.png' % (image_name, self.scale)))
+            input_image = self._load_image(image_path)
+            input_image = torch.tensor(input_image, dtype=torch.float32)
+            self.input_image_list.append(input_image)
 
-    # retrieve image name list
-    input_path = os.path.join('c:/aim2020/data/DIV2K_train_HR')
-    self.image_name_list = [os.path.splitext(f)[0] for f in os.listdir(input_path) if f.lower().endswith('.png')]
-    print('data: %d images are prepared (%s)' % (len(self.image_name_list), 'caching enabled'))
+            image_path = os.path.join(self.args.train_truth_path, ('%s.png' % image_name))
+            truth_image = self._load_image(image_path)
+            truth_image = torch.tensor(truth_image, dtype=torch.float32)
+            self.truth_image_list.append(truth_image)
+        print('data: %d images are prepared (%s)' % (len(self.image_name_list), 'caching enabled'))
 
-    # initialize queue list
-    for scale in self.scale_list:
-      self.data_queue_list[scale] = queue.Queue(maxsize=16)
-    
-    # initialize cached list
-    self.cached_input_image_list = {}
-    for scale in self.scale_list:
-      self.cached_input_image_list[scale] = {}
-    self.cached_truth_image_list = {}
-  
+    def get_patch_batch(self, batch_size, scale, input_patch_size):
+        input_tensor = torch.empty((batch_size, 3, input_patch_size, input_patch_size))
+        truth_tensor = torch.empty((batch_size, 3, input_patch_size*scale, input_patch_size*scale))
 
-  def get_num_images(self):
-    return len(self.image_name_list)
-  
-  
-  def get_patch_batch(self, batch_size, scale, input_patch_size):
-    input_list = []
-    truth_list = []
+        for i in range(batch_size):
+            image_index = np.random.randint(self.num_images)
+            input_patch, truth_patch = self.get_image_patch_pair(image_index=image_index, scale=scale,
+                                                                 input_patch_size=input_patch_size)
+            input_tensor[i] = input_patch
+            truth_tensor[i] = truth_patch
 
-    for _ in range(batch_size):
-      input_patch, truth_patch = self.get_random_image_patch_pair(scale=scale, input_patch_size=input_patch_size)
-      input_list.append(input_patch)
-      truth_list.append(truth_patch)
-    
-    return np.array(input_list, dtype=np.float32).copy(), np.array(truth_list, dtype=np.float32).copy()
-  
+        return input_tensor, truth_tensor
 
-  def get_random_image_patch_pair(self, scale, input_patch_size):
-    # select an image
-    image_index = np.random.randint(self.get_num_images())
+    def get_image_patch_pair(self, image_index, scale, input_patch_size):
+        # retrieve image
+        input_image = self.input_image_list[image_index]
+        truth_image = self.truth_image_list[image_index]
 
-    # retrieve image
-    input_patch, truth_patch = self.get_image_patch_pair(image_index=image_index, scale=scale, input_patch_size=input_patch_size)
-    
-    # finalize
-    return input_patch, truth_patch
+        # randomly crop
+        truth_patch_size = input_patch_size * scale
+        _, height, width = input_image.shape
+        input_x = np.random.randint(width - input_patch_size)
+        input_y = np.random.randint(height - input_patch_size)
+        truth_x = input_x * scale
+        truth_y = input_y * scale
+        input_patch = input_image[:, input_y:(input_y + input_patch_size), input_x:(input_x + input_patch_size)]
+        truth_patch = truth_image[:, truth_y:(truth_y + truth_patch_size), truth_x:(truth_x + truth_patch_size)]
 
+        # randomly rotate
+        rot90_k = np.random.randint(4) + 1
+        input_patch = torch.rot90(input_patch, k=rot90_k, dims=(1, 2))
+        truth_patch = torch.rot90(truth_patch, k=rot90_k, dims=(1, 2))
 
-  def get_image_patch_pair(self, image_index, scale, input_patch_size):
-    # retrieve image
-    input_image, truth_image, _ = self.get_image_pair(image_index=image_index, scale=scale)
+        # randomly flip
+        flip = (np.random.uniform() < 0.5)
+        if (flip):
+            input_patch = torch.flip(input_patch, (2,))
+            truth_patch = torch.flip(truth_patch, (2,))
 
-    # randomly crop
-    truth_patch_size = input_patch_size * scale
-    _, height, width = input_image.shape
-    input_x = np.random.randint(width - input_patch_size)
-    input_y = np.random.randint(height - input_patch_size)
-    truth_x = input_x * scale
-    truth_y = input_y * scale
-    input_patch = input_image[:, input_y:(input_y+input_patch_size), input_x:(input_x+input_patch_size)]
-    truth_patch = truth_image[:, truth_y:(truth_y+truth_patch_size), truth_x:(truth_x+truth_patch_size)]
+        # finalize
+        return input_patch, truth_patch
 
-    # randomly rotate
-    rot90_k = np.random.randint(4)+1
-    input_patch = np.rot90(input_patch, k=rot90_k, axes=(1, 2))
-    truth_patch = np.rot90(truth_patch, k=rot90_k, axes=(1, 2))
-
-    # randomly flip
-    flip = (np.random.uniform() < 0.5)
-    if (flip):
-      input_patch = input_patch[:, :, ::-1]
-      truth_patch = truth_patch[:, :, ::-1]
-    
-    # finalize
-    return input_patch, truth_patch
-  
-
-  def get_image_pair(self, image_index, scale):
-    # retrieve image
-    image_name = self.image_name_list[image_index]
-    input_image = self._get_input_image(scale, image_name)
-    truth_image = self._get_truth_image(image_name)
-
-    # finalize
-    return input_image, truth_image, image_name
-
-
-
-  def start_training_queue_runner(self, batch_size, input_patch_size):
-    self.stop_queue_runners()
-    self.stop_queue_runner_toggle = False
-
-    self.queue_batch_size = batch_size
-    self.queue_input_patch_size = input_patch_size
-
-    for scale in self.scale_list:
-      for _ in range(self.data_num_queue_runners):
-        queue_runner = threading.Thread(target=self._training_queue_runner, args=[scale])
-        queue_runner.start()
-        self.queue_runners.append(queue_runner)
-  
-
-  def stop_queue_runners(self):
-    if (len(self.queue_runners) <= 0):
-      return
-    
-    self.stop_queue_runner_toggle = True
-    while (len(self.queue_runners) > 0):
-      try:
-        queue_runner = self.queue_runners.pop()
-        queue_runner.join()
-      except:
-        pass
-  
-
-  def get_queue_data(self, scale):
-    if (len(self.queue_runners) <= 0):
-      return None
-    
-    return self.data_queue_list[scale].get()
-  
-
-  def _training_queue_runner(self, scale):
-    while True:
-      if (self.stop_queue_runner_toggle):
-        break
-      
-      try:
-        batch_data = self.get_patch_batch(batch_size=self.queue_batch_size, scale=scale, input_patch_size=self.queue_input_patch_size)
-        self.data_queue_list[scale].put(batch_data, block=True, timeout=15)
-      except:
-        pass
-
-
-  def _get_input_image(self, scale, image_name):
-    image = None
-    has_cached = False
-    if (image_name in self.cached_input_image_list[scale]):
-      image = self.cached_input_image_list[scale][image_name]
-      has_cached = True
-    
-    if (image is None):
-      image_path = os.path.join('c:/aim2020/data/DIV2K_train_LR_bicubic', ('X%d' % (scale)), ('%sx%d.png' % (image_name, scale)))
-      image = self._load_image(image_path)
-    
-    if (not has_cached):
-      self.cached_input_image_list[scale][image_name] = image
-    
-    return image
-  
-
-  def _get_truth_image(self, image_name):
-    image = None
-    has_cached = False
-    if (image_name in self.cached_truth_image_list):
-      image = self.cached_truth_image_list[image_name]
-      has_cached = True
-    
-    if (image is None):
-      image_path = os.path.join('c:/aim2020/data/DIV2K_train_HR', ('%s.png' % (image_name)))
-      image = self._load_image(image_path)
-    
-    if (not has_cached):
-      self.cached_truth_image_list[image_name] = image
-    
-    return image
-  
-
-  def _load_image(self, path):
-    image = cv.imread(path)
-    image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
-    image = np.transpose(image, [2, 0, 1])
-    return image
+    def _load_image(self, path):
+        image = cv.imread(path)
+        image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
+        image = np.transpose(image, [2, 0, 1])
+        return image

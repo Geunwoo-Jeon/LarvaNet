@@ -19,7 +19,7 @@ def main():
 
   parser.add_argument('--batch_size', type=int, default=16, help='Size of the batches for each training step.')
   parser.add_argument('--input_patch_size', type=int, default=48, help='Size of each input image patch.')
-  parser.add_argument('--scales', type=str, default='4', help='Scales of the input images. Use the \',\' character to specify multiple scales (e.g., 2,3,4).')
+  parser.add_argument('--scale', type=str, default='4', help='Scale of the input images.')
   parser.add_argument('--cuda_device', type=str, default='0', help='CUDA device index to be used in training. This parameter may be set to the environment variable \'CUDA_VISIBLE_DEVICES\'. Specify it as -1 to disable GPUs.')
 
   parser.add_argument('--train_path', type=str, default='c:/aim2020/edsrb/train/', help='Base path of the trained model to be saved.')

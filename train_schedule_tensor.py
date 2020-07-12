@@ -22,7 +22,7 @@ def main():
     # parse arguments
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dataloader', type=str, default='div2k_train_loader', help='Name of the data loader.')
+    parser.add_argument('--dataloader', type=str, default='div2k_train_loader_tensor', help='Name of the data loader.')
     parser.add_argument('--dataloader_val', type=str, default='div2k_val_loader', help='Name of the data loader.')
     parser.add_argument('--model', type=str, default='edsr', help='Name of the model.')
 
@@ -61,6 +61,7 @@ def main():
     print('prepare data loader - %s' % (args.dataloader))
     DATALOADER_MODULE = importlib.import_module('dataloaders.' + args.dataloader)
     dataloader = DATALOADER_MODULE.create_loader()
+    dataloader_args, remaining_args = dataloader.parse_args(remaining_args)
     dataloader.prepare(scales=scale_list)
 
     DATALOADER_MODULE = importlib.import_module('dataloaders.' + args.dataloader_val)
@@ -96,10 +97,6 @@ def main():
     with open(arguments_path, 'w') as f:
         f.write(json.dumps(all_args, sort_keys=True, indent=2))
 
-    # start fetching data
-    if dataloader.is_threaded:
-        dataloader.start_training_queue_runner(batch_size=args.batch_size, input_patch_size=args.input_patch_size)
-
     if args.step_per_epoch is None:
         batch_data_size = (args.input_patch_size**2)*args.batch_size*3
         dataset_size = 300*(1024**2)
@@ -119,8 +116,14 @@ def main():
 
             start_time = time.time()
             input_tensor, truth_tensor = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale,
-                                                                    input_patch_size=args.input_patch_size)
+                                                                input_patch_size=args.input_patch_size)
             dataload_time = time.time() - start_time
+
+            # to gpu
+            check_time = time.time()
+            input_tensor = input_tensor.to(model.device)
+            truth_tensor = truth_tensor.to(model.device)
+            to_gpu_time = time.time() - check_time
 
             # get SR and calculate loss
             check_time = time.time()
@@ -183,12 +186,10 @@ def main():
 
             if model.global_step < step_per_epoch and model.global_step % args.log_freq == 0:
                 print('step %d, lr %.10f, loss %.6f (%.3f sec/batch)' % (model.global_step, lr, loss, duration))
-                print(f'dataload_time:{dataload_time:.4f}s, np2ts_time:{np2ts_time:.4f}s, '
+                print(f'dataload_time:{dataload_time:.4f}s, to_gpu_time:{to_gpu_time:.4f}s, '
                     f'fwd_loss_time: {fwd_loss_time:.4f}s, back_prop_time: {back_prop_time}s')
     except KeyboardInterrupt:
         print('interrupted (KeyboardInterrupt)')
-    except Exception as e:
-        print(e)
 
     # finalize
     print('finished')
