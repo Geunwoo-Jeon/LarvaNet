@@ -74,24 +74,25 @@ class SquidNet(BaseModel):
         self.scale = self.scale_list[0]
 
         # PyTorch model
-        self.modules = []
-        for i in range(self.args.num_modules):
-            if i == 0:
-                self.modules.append(SquidHeadModule(args=self.args))
-            else:
-                self.modules.append(SquidLegModule(args=self.args))
-
-        self.model = nn.Sequential(*self.modules)
+        self.model = SquidNetModule(args=self.args)
 
         if is_training:
             self.loss_fn = nn.L1Loss()
+
             self.optims = []
             for i in range(self.args.num_modules):
-                tmp_optim = optim.AdamW(
-                    filter(lambda p: p.requires_grad, self.modules[i].parameters()),
-                    lr=self.args.lr
-                )
+                if i == 0:
+                    tmp_optim = optim.AdamW(
+                        filter(lambda p: p.requires_grad, self.model.head.parameters()),
+                        lr=self.args.lr
+                    )
+                else:
+                    tmp_optim = optim.AdamW(
+                        filter(lambda p: p.requires_grad, getattr(self.model, f'leg{i-1}').parameters()),
+                        lr=self.args.lr
+                    )
                 self.optims.append(tmp_optim)
+
             self.schedulers = []
             for i in range(self.args.num_modules):
                 tmp_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
@@ -106,24 +107,18 @@ class SquidNet(BaseModel):
     def train_step_squid(self, args, val_dataloader, scale, input_tensor, truth_tensor, summary=None):
         self.global_step += 1
         # train each legs
-        output_tensors = []
         for i in range(self.args.num_modules):
             if self.global_step < i * self.epoch * args.step_per_epoch:
                 continue
-            # get SR and calculate loss
-            if i == 0:
-                output_tensor = self.modules[i](input_tensor)
-                output_tensors.append(output_tensor.detach())
-            else:
-                output_tensor = self.modules[i](output_tensors[i-1])
-                output_tensors.append(output_tensor.detach())
-            loss = self.loss_fn(output_tensor[i], truth_tensor)
+            # forward path and calculate loss
+            out, fea, base = self.model.head(input_tensor)
+            for j in range(i):
+                out, fea = getattr(self.model, f'leg{j}')(fea, base)
+            loss = self.loss_fn(out, truth_tensor)
             # do back propagation
             self.optims[i].zero_grad()
             loss.backward()
             self.optims[i].step()
-
-        print('backprop end')
 
         if self.global_step % args.step_per_epoch == 0:
             self.epoch += 1
@@ -132,7 +127,7 @@ class SquidNet(BaseModel):
             self.validate_for_train(args, val_dataloader)
             # write summary
             lr = self.get_lr()
-            if summary is not None and self.global_step % 10 == 0:
+            if summary is not None:
                 summary.add_scalar('loss', loss, self.global_step)
                 summary.add_scalar('lr', lr, self.global_step)
 
@@ -224,6 +219,19 @@ class ResidualBlock(nn.Module):
         return output
 
 
+class SpaceToDepth(nn.Module):
+    def __init__(self, block_size):
+        super().__init__()
+        self.bs = block_size
+
+    def forward(self, x):
+        N, C, H, W = x.size()
+        x = x.view(N, C, H // self.bs, self.bs, W // self.bs, self.bs)  # (N, C, H//bs, bs, W//bs, bs)
+        x = x.permute(0, 3, 5, 1, 2, 4).contiguous()  # (N, bs, bs, C, H//bs, W//bs)
+        x = x.view(N, C * (self.bs ** 2), H // self.bs, W // self.bs)  # (N, C*bs^2, H//bs, W//bs)
+        return x
+
+
 class SquidHeadModule(nn.Module):
     def __init__(self, args):
         super(SquidHeadModule, self).__init__()
@@ -242,21 +250,23 @@ class SquidHeadModule(nn.Module):
         # initialization
         initialize_weights(self.first_conv, 0.1)
 
+        # interpolate method
         self.interpolate = args.interpolate
 
     def forward(self, x):
-        out = self.lrelu(self.first_conv(x))
-        out = self.res_blocks(out)
-        out = self.upsample(out)
+        fea = self.lrelu(self.first_conv(x))
+        fea = self.res_blocks(fea)
+        out = self.upsample(fea)
         base = F.interpolate(x, scale_factor=4, mode=self.interpolate, align_corners=False)
-        out += base
-        return out
+        out = out + base
+        return out, fea, base
 
 
 class SquidLegModule(nn.Module):
     def __init__(self, args):
         super(SquidLegModule, self).__init__()
         num_filters = 48
+        self.pixel_unshuffle = SpaceToDepth(block_size=4)
         res_block_layers = []
         for i in range(args.num_blocks):
             res_block_layers.append(ResidualBlock(num_channels=num_filters))
@@ -266,14 +276,24 @@ class SquidLegModule(nn.Module):
         # activation function
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
 
-    def pixel_unshuffle(self, x, scale):
-        n, c, h, w = x.size()
-        unfolded_x = torch.nn.functional.unfold(x, scale, stride=scale)
-        return unfolded_x.view(n, c * scale ** 2, h // scale, w // scale)
+    def forward(self, x, base):
+        fea = self.res_blocks(x)
+        out = self.upsample(fea)
+        out += self.upsample(x)
+        out += base
+        return out, fea
+
+
+class SquidNetModule(nn.Module):
+    def __init__(self, args):
+        super(SquidNetModule, self).__init__()
+        self.head = SquidHeadModule(args=args)
+        self.legs = args.num_modules - 1
+        for i in range(self.legs):
+            setattr(self, f'leg{i}', SquidLegModule(args=args))
 
     def forward(self, x):
-        fea = self.pixel_unshuffle(x, 4)
-        out = self.res_blocks(fea)
-        out = self.upsample(out)
-        out += x
+        out, fea, base = self.head(x)
+        for i in range(self.legs):
+            out, fea = getattr(self, f'leg{i}')(fea, base)
         return out

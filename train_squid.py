@@ -111,7 +111,6 @@ def main():
     print(f'{step_per_epoch} steps equal to 1 epoch')
     try:
         while True:
-            print('loop start')
             scale = model.get_next_train_scale()
             summary = summary_writers[scale] if (model.global_step % args.summary_freq == 0) else None
 
@@ -129,17 +128,14 @@ def main():
             input_tensor = torch.as_tensor(input_list, dtype=torch.float32, device=model.device)
             truth_tensor = torch.as_tensor(truth_list, dtype=torch.float32, device=model.device)
             np2ts_time = time.time() - check_time
-
-            print('train step start')
             # train step
             check_time = time.time()
             loss = model.train_step_squid(args=args, val_dataloader=val_dataloader, scale=scale,
                                           input_tensor=input_tensor, truth_tensor=truth_tensor, summary=summary)
             train_time = time.time() - check_time
 
-            print('loop end')
-
             duration = time.time() - start_time
+            lr = model.get_lr()
             if args.sleep_ratio > 0 and duration > 0:
                 time.sleep(min(10.0, duration * args.sleep_ratio))
             if model.global_step < step_per_epoch * 2 and model.global_step % args.log_freq == 0:
@@ -148,8 +144,8 @@ def main():
                       f'train_time: {train_time:.4f}s')
     except KeyboardInterrupt:
         print('interrupted (KeyboardInterrupt)')
-    except Exception as e:
-        print(e)
+    # except Exception as e:
+    #     print(e)
 
     # finalize
     print('finished')
