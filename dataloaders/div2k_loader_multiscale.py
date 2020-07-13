@@ -26,6 +26,7 @@ class DIV2KLoader(BaseLoader):
         self.data_queue_list = {}
         self.queue_runners = []
         self.stop_queue_runner_toggle = False
+        self.cached_input_image_list={}
 
     def parse_args(self, args):
         parser = argparse.ArgumentParser()
@@ -46,7 +47,7 @@ class DIV2KLoader(BaseLoader):
 
         # retrieve image name list
         input_path = os.path.join(self.args.data_truth_path)
-        self.image_name_list = [os.path.splitext(f)[0] for f in os.listdir(input_path) if ['{:05d}.png'.format(number) for number in range(57000)] ]
+        self.image_name_list = ['{:06d}'.format(number) for number in range(19000)]
         print('data: %d images are prepared (%s)' % (
         len(self.image_name_list), 'caching enabled' if self.args.data_cached else 'caching disabled'))
 
@@ -55,7 +56,7 @@ class DIV2KLoader(BaseLoader):
             self.data_queue_list[scale] = queue.Queue(maxsize=16)
 
         # initialize cached list
-        self.cached_input_image_list = {}
+        self.cached_input_image_list[scale] = {}
         for scale in self.scale_list:
             self.cached_input_image_list[scale] = {}
         self.cached_truth_image_list = {}
@@ -191,7 +192,7 @@ class DIV2KLoader(BaseLoader):
                 has_cached = True
 
         if (image is None):
-            image_path = os.path.join(self.args.data_truth_path, ('%s%d.png' % (image_name, scale)))
+            image_path = os.path.join(self.args.data_truth_path, ('%sx%d.png' % (image_name, scale)))
             image = self._load_image(image_path, isHsv=self.args.isHsv)
 
         if (self.args.data_cached and (not has_cached)):
