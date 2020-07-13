@@ -46,11 +46,11 @@ class DIV2KLoader(BaseLoader):
 
         # retrieve image name list
         input_path = os.path.join(self.args.data_truth_path)
-        self.image_name_list = [os.path.splitext(f)[0] for f in os.listdir(input_path) if f.lower().endswith('.png')]
+        self.image_name_list = [os.path.splitext(f)[0] for f in os.listdir(input_path) if ['{:05d}.png'.format(number) for number in range(57000)] ]
         print('data: %d images are prepared (%s)' % (
         len(self.image_name_list), 'caching enabled' if self.args.data_cached else 'caching disabled'))
 
-        # initialize queue list
+        # initialize queue listd
         for scale in self.scale_list:
             self.data_queue_list[scale] = queue.Queue(maxsize=16)
 
@@ -174,7 +174,7 @@ class DIV2KLoader(BaseLoader):
                 has_cached = True
 
         if (image is None):
-            image_path = os.path.join(self.args.data_input_path, ('X%d' % (scale)), ('%sx%d.png' % (image_name, scale)))
+            image_path = os.path.join(self.args.data_input_path, ('%sx%d.png' % (image_name, scale)))
             image = self._load_image(image_path, isHsv=self.args.isHsv)
 
         if (self.args.data_cached and (not has_cached)):
@@ -187,15 +187,15 @@ class DIV2KLoader(BaseLoader):
         has_cached = False
         if (self.args.data_cached):
             if (image_name in self.cached_truth_image_list):
-                image = self.cached_truth_image_list[image_name]
+                image = self.cached_truth_image_list[scale][image_name]
                 has_cached = True
 
         if (image is None):
-            image_path = os.path.join(self.args.data_truth_path, ('X%d' % (scale)), ('%s.png' % (image_name)))
+            image_path = os.path.join(self.args.data_truth_path, ('%s%d.png' % (image_name, scale)))
             image = self._load_image(image_path, isHsv=self.args.isHsv)
 
         if (self.args.data_cached and (not has_cached)):
-            self.cached_truth_image_list[image_name] = image
+            self.cached_truth_image_list[scale][image_name] = image
 
         return image
 
