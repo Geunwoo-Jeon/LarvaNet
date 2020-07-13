@@ -42,9 +42,9 @@ class MDSR(BaseModel):
     for scale in self.scale_list:
       if (not scale in [2, 3, 4]):
         raise ValueError('Unsupported scale is provided.')
-    if len(self.scale_list) != 1:
-      raise ValueError('Only one scale should be provided.')
-    self.scale = self.scale_list[0]
+    # if len(self.scale_list) != 1:
+    #   raise ValueError('Only one scale should be provided.')
+    # self.scale = self.scale_list[0]
 
     # PyTorch model
     self.model = MDSRModule(args=self.args, scale_list=self.scale_list)
@@ -151,9 +151,9 @@ class ResidualBlock(nn.Module):
     return output
 
 
-class UpsampleBlock(nn.Module):
+class UpsampleBlock(nn.Sequential):
   def __init__(self, num_channels, scale):
-    super(UpsampleBlock, self).__init__()
+    # super(UpsampleBlock, self).__init__()
 
     layers = []
     if scale == 2 or scale == 4 or scale == 8:
@@ -164,11 +164,9 @@ class UpsampleBlock(nn.Module):
         layers.append(nn.Conv2d(in_channels=num_channels, out_channels=9*num_channels, kernel_size=3, stride=1, padding=1))
         layers.append(nn.PixelShuffle(3))
 
-    self.body = nn.Sequential(*layers)
+    # self.body = nn.Sequential(*layers)
   
-  def forward(self, x):
-    output = self.body(x)
-    return output
+    super(UpsampleBlock, self).__init__(*layers)
 
 
 
@@ -176,8 +174,8 @@ class MDSRModule(nn.Module):
   def __init__(self, args, scale_list):
     super(MDSRModule, self).__init__()
 
-    self.mean_shift = MeanShift([114.4, 111.5, 103.0], sign=1.0)
-    self.first_conv = nn.Conv2d(in_channels=3, out_channels=args.edsr_conv_features, kernel_size=3, stride=1, padding=1)
+    self.sub_mean = MeanShift([114.4, 111.5, 103.0], sign=1.0)
+    m_head = [nn.Conv2d(in_channels=3, out_channels=args.edsr_conv_features, kernel_size=3, stride=1, padding=1)]
 
     self.pre_process = nn.ModuleList([
         nn.Sequential(
@@ -186,31 +184,39 @@ class MDSRModule(nn.Module):
           ) for _ in scale_list
       ])    
 
-    res_block_layers = []
-    for i in range(args.edsr_res_blocks):
-      res_block_layers.append(ResidualBlock(num_channels=args.edsr_conv_features, weight=args.edsr_res_weight))
-    self.res_blocks = nn.Sequential(*res_block_layers)
-    self.after_res_conv = nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=args.edsr_conv_features, kernel_size=3, stride=1, padding=1)
+    m_body = [
+      ResidualBlock(num_channels=args.edsr_conv_features, weight=args.edsr_res_weight) for _ in range(args.edsr_res_blocks)
+    ]
+    m_body.append(nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=args.edsr_conv_features, kernel_size=3, stride=1, padding=1))
+
+
+    # res_block_layers = []
+    # for i in range(args.edsr_res_blocks):
+    #   res_block_layers.append(ResidualBlock(num_channels=args.edsr_conv_features, weight=args.edsr_res_weight))
+    # self.res_blocks = nn.Sequential(*res_block_layers)
+    # self.after_res_conv = nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=args.edsr_conv_features, kernel_size=3, stride=1, padding=1)
 
     self.upsample = nn.ModuleList([ 
       UpsampleBlock(num_channels=args.edsr_conv_features, scale=scale) for scale in scale_list
       ])
 
-    self.final_conv = nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=3, kernel_size=3, stride=1, padding=1)
+    m_tail = [nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=3, kernel_size=3, stride=1, padding=1)]
 
-    self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
+    self.head = nn.Sequential(*m_head)
+    self.body = nn.Sequential(*m_body)
+    self.tail = nn.Sequential(*m_tail)
+    self.add_mean = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
   
   def forward(self, x, scale=2):
-    x = self.mean_shift(x)
-    x = self.first_conv(x)
+    x = self.sub_mean(x)
+    x = self.head(x)
     x = self.pre_process[scale-2](x)
 
-    res = self.res_blocks(x)
-    res = self.after_res_conv(res)
-    x = torch.add(x, res)
+    res = self.body(x)
+    res += x
 
-    x = self.upsample[scale-2](x)
-    x = self.final_conv(x)
-    x = self.mean_inverse_shift(x)
+    x = self.upsample[scale-2](res)
+    x = self.tail(x)
+    x = self.add_mean(x)
 
     return x
