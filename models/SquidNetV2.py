@@ -111,15 +111,15 @@ class SquidNet(BaseModel):
             if self.global_step < i * self.epoch * args.step_per_epoch:
                 continue
             # forward path and calculate loss
-            out, fea, base = self.model.head(input_tensor)
+            out_tensor = self.model.head(input_tensor)
             for j in range(i):
-                out, fea = getattr(self.model, f'leg{j}')(fea, base)
-            loss = self.loss_fn(out, truth_tensor)
+                out_tensor = getattr(self.model, f'leg{j}')(out_tensor)
+            loss = self.loss_fn(out_tensor, truth_tensor)
             # do back propagation
             self.optims[i].zero_grad()
             loss.backward()
             self.optims[i].step()
-
+            
         if self.global_step == 1:
             self.validate_for_train(args, val_dataloader)
 
@@ -261,7 +261,7 @@ class SquidHeadModule(nn.Module):
         out = self.upsample(fea)
         base = F.interpolate(x, scale_factor=4, mode=self.interpolate, align_corners=False)
         out = out + base
-        return out, fea, base
+        return out
 
 
 class SquidLegModule(nn.Module):
@@ -278,12 +278,12 @@ class SquidLegModule(nn.Module):
         # activation function
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
 
-    def forward(self, x, base):
-        fea = self.res_blocks(x)
+    def forward(self, x):
+        fea = self.pixel_unshuffle(x)
+        fea = self.res_blocks(fea)
         out = self.upsample(fea)
-        out += self.upsample(x)
-        out += base
-        return out, fea
+        out += x
+        return out
 
 
 class SquidNetModule(nn.Module):
@@ -295,7 +295,7 @@ class SquidNetModule(nn.Module):
             setattr(self, f'leg{i}', SquidLegModule(args=args))
 
     def forward(self, x):
-        out, fea, base = self.head(x)
+        out = self.head(x)
         for i in range(self.legs):
-            out, fea = getattr(self, f'leg{i}')(fea, base)
+            out = getattr(self, f'leg{i}')(out)
         return out
