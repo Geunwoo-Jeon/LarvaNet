@@ -119,25 +119,27 @@ class SquidNet(BaseModel):
             self.optims[i].zero_grad()
             loss.backward()
             self.optims[i].step()
+            
+        if self.global_step == 1:
+            self.validate_for_train(args, val_dataloader)
 
         if self.global_step % args.step_per_epoch == 0:
             self.epoch += 1
+            if self.epoch % 10 == 0 and self.epoch != 0:
+                self.validate_for_train(args, val_dataloader)
+                # write summary
+                lr = self.get_lr()
+                if summary is not None:
+                    summary.add_scalar('loss', loss, self.global_step)
+                    summary.add_scalar('lr', lr, self.global_step)
 
-        if self.epoch % 10 == 0 and self.epoch != 0:
-            self.validate_for_train(args, val_dataloader)
-            # write summary
-            lr = self.get_lr()
-            if summary is not None:
-                summary.add_scalar('loss', loss, self.global_step)
-                summary.add_scalar('lr', lr, self.global_step)
-
-                input_tensor_uint8 = input_tensor.clamp(0, 255).byte()
-                output_tensor_uint8 = output_tensor.clamp(0, 255).byte()
-                truth_tensor_uint8 = truth_tensor.clamp(0, 255).byte()
-                for i in range(min(4, len(input_tensor_uint8))):
-                    summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], self.epoch)
-                    summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.epoch)
-                    summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.epoch)
+                    input_tensor_uint8 = input_tensor.clamp(0, 255).byte()
+                    output_tensor_uint8 = out.clamp(0, 255).byte()
+                    truth_tensor_uint8 = truth_tensor.clamp(0, 255).byte()
+                    for i in range(min(4, len(input_tensor_uint8))):
+                        summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], self.epoch)
+                        summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.epoch)
+                        summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.epoch)
 
         return loss.item()
 
