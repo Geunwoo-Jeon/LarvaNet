@@ -184,7 +184,7 @@ class SquidNet(BaseModel):
         return scale
 
     def get_lr(self):
-        return self.optims[0].param_groups[0]['lr']
+        return self.optim.param_groups[0]['lr']
 
     def fwd_runtime(self, input_tensor):
         output_tensor = self.model(input_tensor)
