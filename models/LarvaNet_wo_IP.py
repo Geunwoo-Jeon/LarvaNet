@@ -48,7 +48,6 @@ class LarvaNet(BaseModel):
 
         parser.add_argument('--num_modules', type=int, default=2, help='The number of residual blocks at LR domain.')
         parser.add_argument('--num_blocks', type=int, default=16, help='The number of residual blocks at HR domain.')
-        parser.add_argument('--interpolate', type=str, default='bicubic', help='Interpolation method.')
 
         parser.add_argument('--lr', type=float, default=1e-3, help='Initial learning rate.')
         parser.add_argument('--lr_decay', type=float, default=0.5, help='Learning rate decay factor.')
@@ -93,11 +92,11 @@ class LarvaNet(BaseModel):
         self.global_step += 1
         # make outputs(forward)
         fea = self.model.head(input_tensor)
-        base = self.model.base(input_tensor)
         loss = 0
         for i in range(self.args.num_modules):
             fea = getattr(self.model, f'body_{i}')(fea)
-            out = getattr(self.model, f'body_{i}').leg(fea, base)
+            out = getattr(self.model, f'body_{i}').leg(fea)
+            out = out + base
             loss += self.loss_fn(out, truth_tensor)
         loss = loss / self.args.num_modules
 
@@ -245,10 +244,9 @@ class LarvaLeg(nn.Module):
         initialize_weights(self.recon_block, 0.1)
         self.upsample = nn.PixelShuffle(4)
 
-    def forward(self, fea, base):
+    def forward(self, fea):
         fea = self.recon_block(fea)
         out = self.upsample(fea)
-        out += base
         return out
 
 
@@ -256,19 +254,13 @@ class LarvaNetModule(nn.Module):
     def __init__(self, args):
         super(LarvaNetModule, self).__init__()
         self.len = args.num_modules
-        self.interpolate = args.interpolate
         self.head = LarvaHead()
         for i in range(self.len):
             setattr(self, f'body_{i}', LarvaBody(args=args))
-
-    def base(self, x):
-        base = F.interpolate(x, scale_factor=4, mode=self.interpolate, align_corners=False)
-        return base
 
     def forward(self, x):
         fea = self.head(x)
         for i in range(self.len):
             fea = getattr(self, f'body_{i}')(fea)
-        base = self.base(x)
-        out = getattr(self, f'body_{self.len-1}').leg(fea, base)
+        out = getattr(self, f'body_{self.len-1}').leg(fea)
         return out
