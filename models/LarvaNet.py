@@ -16,7 +16,7 @@ from models.base import BaseModel
 
 
 def create_model():
-    return SquidNet()
+    return LarvaNet()
 
 
 def initialize_weights(net_l, scale=1):
@@ -39,7 +39,7 @@ def initialize_weights(net_l, scale=1):
                 init.constant_(m.bias.data, 0.0)
 
 
-class SquidNet(BaseModel):
+class LarvaNet(BaseModel):
     def __init__(self):
         super().__init__()
 
@@ -67,47 +67,46 @@ class SquidNet(BaseModel):
 
         self.scale_list = scales
         for scale in self.scale_list:
-            if (not scale in [2, 3, 4]):
+            if not (scale in [2, 3, 4]):
                 raise ValueError('Unsupported scale is provided.')
         if len(self.scale_list) != 1:
             raise ValueError('Only one scale should be provided.')
         self.scale = self.scale_list[0]
 
         # PyTorch model
-        self.model = SquidNetModule(args=self.args)
+        self.model = LarvaNetModule(args=self.args)
 
         if is_training:
             self.loss_fn = nn.L1Loss()
-
             self.optim = optim.AdamW(
-                        filter(lambda p: p.requires_grad, self.model.parameters()),
-                        lr=self.args.lr)
+                filter(lambda p: p.requires_grad, self.model.parameters()),
+                lr=self.args.lr)
             self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                    self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
-                    threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=True)
+                self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
+                threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=True)
 
         # configure device
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = self.model.to(self.device)
 
-    def train_step_squid(self, args, val_dataloader, scale, input_tensor, truth_tensor, summary=None):
+    def train_step_larva(self, args, val_dataloader, scale, input_tensor, truth_tensor, summary=None):
         self.global_step += 1
         # make outputs(forward)
-        outputs = []
-        outputs.append(self.model.head(input_tensor))
-        for i in range(self.args.num_modules - 1):
-            outputs.append(getattr(self.model, f'leg{i}')(outputs[i]))
-
-        # calculate loss
+        fea = self.model.head(input_tensor)
+        base = self.model.base(input_tensor)
         loss = 0
-        for output in outputs:
-            loss = loss + self.loss_fn(output, truth_tensor)
+        for i in range(self.args.num_modules):
+            fea = getattr(self.model, f'body_{i}')(fea)
+            out = getattr(self.model, f'body_{i}').leg(fea, base)
+            out = out + base
+            loss += self.loss_fn(out, truth_tensor)
         loss = loss / self.args.num_modules
+
         # do back propagation
         self.optim.zero_grad()
         loss.backward()
         self.optim.step()
-            
+
         if self.global_step == 1:
             self.validate_for_train(args, val_dataloader)
 
@@ -142,7 +141,7 @@ class SquidNet(BaseModel):
 
         for image_index in range(num_images):
             input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index,
-                                                                                 scale=4)
+                                                                             scale=4)
             output_image = self.upscale(input_list=[input_image], scale=4)[0]
             truth_image = validate._image_to_uint8(truth_image)
             output_image = validate._image_to_uint8(output_image)
@@ -207,81 +206,70 @@ class ResidualBlock(nn.Module):
         return output
 
 
-class SpaceToDepth(nn.Module):
-    def __init__(self, block_size):
-        super().__init__()
-        self.bs = block_size
+class LarvaHead(nn.Module):
+    def __init__(self):
+        super(LarvaHead, self).__init__()
+        num_filters = 48
+        self.feature_extraction = nn.Conv2d(in_channels=3, out_channels=num_filters, kernel_size=3, stride=1,
+                                            padding=1)
+        initialize_weights(self.feature_extraction, 0.1)
 
     def forward(self, x):
-        N, C, H, W = x.size()
-        x = x.view(N, C, H // self.bs, self.bs, W // self.bs, self.bs)  # (N, C, H//bs, bs, W//bs, bs)
-        x = x.permute(0, 3, 5, 1, 2, 4).contiguous()  # (N, bs, bs, C, H//bs, W//bs)
-        x = x.view(N, C * (self.bs ** 2), H // self.bs, W // self.bs)  # (N, C*bs^2, H//bs, W//bs)
-        return x
+        fea = self.feature_extraction(x)
+        return fea
 
 
-class SquidHeadModule(nn.Module):
+class LarvaBody(nn.Module):
     def __init__(self, args):
-        super(SquidHeadModule, self).__init__()
+        super(LarvaBody, self).__init__()
         num_filters = 48
-        self.first_conv = nn.Conv2d(in_channels=3, out_channels=num_filters, kernel_size=3, stride=1,
-                                    padding=1)
         res_block_layers = []
         for i in range(args.num_blocks):
             res_block_layers.append(ResidualBlock(num_channels=num_filters))
         self.res_blocks = nn.Sequential(*res_block_layers)
+        self.leg = LarvaLeg()
+
+    def forward(self, x):
+        fea = self.res_blocks(x)
+        return x + fea
+
+
+class LarvaLeg(nn.Module):
+    def __init__(self):
+        super(LarvaLeg, self).__init__()
+        num_filters = 48
+        self.recon_block = nn.Sequential(
+            nn.Conv2d(in_channels=num_filters, out_channels=num_filters, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=num_filters, out_channels=num_filters, kernel_size=3, stride=1, padding=1)
+        )
+        initialize_weights(self.recon_block, 0.1)
         self.upsample = nn.PixelShuffle(4)
 
-        # activation function
-        self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
+    def forward(self, fea, base):
+        fea = self.recon_block(fea)
+        out = self.upsample(fea)
+        out += base
+        return out
 
-        # initialization
-        initialize_weights(self.first_conv, 0.1)
 
-        # interpolate method
+class LarvaNetModule(nn.Module):
+    def __init__(self, args):
+        super(LarvaNetModule, self).__init__()
+        self.len = args.num_modules
         self.interpolate = args.interpolate
+        self.head = LarvaHead()
+        for i in range(self.len):
+            setattr(self, f'body_{i}', LarvaBody(args=args))
 
-    def forward(self, x):
-        fea = self.lrelu(self.first_conv(x))
-        fea = self.res_blocks(fea)
-        out = self.upsample(fea)
+    def base(self, x):
         base = F.interpolate(x, scale_factor=4, mode=self.interpolate, align_corners=False)
-        out = out + base
-        return out
-
-
-class SquidLegModule(nn.Module):
-    def __init__(self, args):
-        super(SquidLegModule, self).__init__()
-        num_filters = 48
-        self.pixel_unshuffle = SpaceToDepth(block_size=4)
-        res_block_layers = []
-        for i in range(args.num_blocks):
-            res_block_layers.append(ResidualBlock(num_channels=num_filters))
-        self.res_blocks = nn.Sequential(*res_block_layers)
-        self.upsample = nn.PixelShuffle(4)
-
-        # activation function
-        self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
+        return base
 
     def forward(self, x):
-        fea = self.pixel_unshuffle(x)
-        fea = self.res_blocks(fea)
-        out = self.upsample(fea)
-        out += x
-        return out
-
-
-class SquidNetModule(nn.Module):
-    def __init__(self, args):
-        super(SquidNetModule, self).__init__()
-        self.head = SquidHeadModule(args=args)
-        self.legs = args.num_modules - 1
-        for i in range(self.legs):
-            setattr(self, f'leg{i}', SquidLegModule(args=args))
-
-    def forward(self, x):
-        out = self.head(x)
-        for i in range(self.legs):
-            out = getattr(self, f'leg{i}')(out)
+        fea = self.head(x)
+        for i in range(self.len):
+            fea = getattr(self, f'body_{i}')(fea)
+        base = self.base(x)
+        out = getattr(self, f'body_{self.len-1}').leg(fea, base)
         return out
