@@ -54,7 +54,7 @@ class SquidNet(BaseModel):
         parser.add_argument('--lr_decay', type=float, default=0.5, help='Learning rate decay factor.')
         parser.add_argument('--threshold', type=float, default=0.005, help='Learning rate decay factor.')
         parser.add_argument('--min_lr', type=float, default=1e-5, help='Initial learning rate.')
-        parser.add_argument('--patience', type=int, default=3, help='patience for lr scheduler')
+        parser.add_argument('--patience', type=int, default=6, help='patience for lr scheduler')
         parser.add_argument('--lambda_cons', type=float, default=0.1, help='lambda for consistency loss')
 
         self.args, remaining_args = parser.parse_known_args(args=args)
@@ -79,26 +79,14 @@ class SquidNet(BaseModel):
         if is_training:
             self.loss_fn = nn.L1Loss()
 
-            self.optims = []
-            for i in range(self.args.num_modules):
-                if i == 0:
-                    tmp_optim = optim.AdamW(
-                        filter(lambda p: p.requires_grad, self.model.head.parameters()),
+            self.optim = optim.AdamW(
+                        filter(lambda p: p.requires_grad, self.model.parameters()),
                         lr=self.args.lr
-                    )
-                else:
-                    tmp_optim = optim.AdamW(
-                        filter(lambda p: p.requires_grad, getattr(self.model, f'leg{i-1}').parameters()),
-                        lr=self.args.lr
-                    )
-                self.optims.append(tmp_optim)
+            )
 
-            self.schedulers = []
-            for i in range(self.args.num_modules):
-                tmp_scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                    self.optims[i], mode='max', factor=self.args.lr_decay, patience=self.args.patience,
-                    threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=(i==0))
-                self.schedulers.append(tmp_scheduler)
+            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                    self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
+                    threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=True)
 
         # configure device
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -106,26 +94,27 @@ class SquidNet(BaseModel):
 
     def train_step_squid(self, args, val_dataloader, scale, input_tensor, truth_tensor, summary=None):
         self.global_step += 1
-        # train each legs
-        for i in range(self.args.num_modules):
-            if self.global_step < i * self.epoch * args.step_per_epoch:
-                continue
-            # forward path and calculate loss
-            out_tensor = self.model.head(input_tensor)
-            for j in range(i):
-                out_tensor = getattr(self.model, f'leg{j}')(out_tensor)
-            loss = self.loss_fn(out_tensor, truth_tensor)
-            # do back propagation
-            self.optims[i].zero_grad()
-            loss.backward()
-            self.optims[i].step()
+        # make outputs(forward)
+        outputs = []
+        outputs.append(self.model.head(input_tensor))
+        for i in range(self.args.num_modules - 1):
+            outputs.append(getattr(self.model, f'leg{i}')(outputs[i]))
+
+        # calculate loss
+        loss = 0
+        for output in outputs:
+            loss = loss + self.loss_fn(output, truth_tensor)
+        # do back propagation
+        self.optim.zero_grad()
+        loss.backward()
+        self.optim.step()
             
         if self.global_step == 1:
             self.validate_for_train(args, val_dataloader)
 
         if self.global_step % args.step_per_epoch == 0:
             self.epoch += 1
-            if self.epoch % 10 == 0 and self.epoch != 0:
+            if self.epoch % 5 == 0 and self.epoch != 0:
                 self.validate_for_train(args, val_dataloader)
                 # write summary
                 lr = self.get_lr()
@@ -140,6 +129,9 @@ class SquidNet(BaseModel):
                         summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], self.epoch)
                         summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.epoch)
                         summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.epoch)
+            if self.epoch % 10 == 0:
+                self.save(base_path=args.train_path)
+                print('saved a model checkpoint at epoch %d' % self.epoch)
 
         return loss.item()
 
@@ -166,10 +158,6 @@ class SquidNet(BaseModel):
 
         for scheduler in self.schedulers:
             scheduler.step(average_psnr)
-
-        # save model each validation
-        self.save(base_path=args.train_path)
-        print('saved a model checkpoint at epoch %d' % self.epoch)
 
     def upscale(self, input_list, scale):
         # numpy to torch

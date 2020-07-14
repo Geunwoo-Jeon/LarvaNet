@@ -125,7 +125,7 @@ class SquidNet(BaseModel):
 
         if self.global_step % args.step_per_epoch == 0:
             self.epoch += 1
-            if self.epoch % 10 == 0 and self.epoch != 0:
+            if self.epoch % 3 == 0 and self.epoch != 0:
                 self.validate_for_train(args, val_dataloader)
                 # write summary
                 lr = self.get_lr()
@@ -140,6 +140,9 @@ class SquidNet(BaseModel):
                         summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], self.epoch)
                         summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.epoch)
                         summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.epoch)
+            elif self.epoch % 10 == 0:
+                self.save(base_path=args.train_path)
+                print('saved a model checkpoint at epoch %d' % self.epoch)
 
         return loss.item()
 
@@ -166,10 +169,6 @@ class SquidNet(BaseModel):
 
         for scheduler in self.schedulers:
             scheduler.step(average_psnr)
-
-        # save model each validation
-        self.save(base_path=args.train_path)
-        print('saved a model checkpoint at epoch %d' % self.epoch)
 
     def upscale(self, input_list, scale):
         # numpy to torch
