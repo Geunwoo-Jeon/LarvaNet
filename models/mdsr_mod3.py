@@ -26,6 +26,7 @@ class MDSR(BaseModel):
         parser.add_argument('--edsr_conv_features', type=int, default=64, help='The number of convolutional features.')
         parser.add_argument('--edsr_res_blocks', type=int, default=16, help='The number of residual blocks.')
         parser.add_argument('--edsr_res_weight', type=float, default=1.0, help='The scaling factor.')
+        parser.add_argument('--steps_per_epoch', type=int, default=3000, help='Num of steps that equal to 1 epoch.')
 
         parser.add_argument('--edsr_learning_rate', type=float, default=1e-4, help='Initial learning rate.')
         parser.add_argument('--edsr_learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
@@ -60,6 +61,9 @@ class MDSR(BaseModel):
 
         if (is_training):
             self.optim = optim.Adam(optim_params, lr=self._get_learning_rate())
+            self.scheduler = optim.lr_scheduler.OneCycleLR(
+                self.optim, max_lr=0.005, total_steps=None, epochs=200, steps_per_epoch=self.args.steps_per_epoch,
+                anneal_strategy='cos', div_factor=50, final_div_factor=100, last_epoch=-1
             self.loss_fn = nn.L1Loss()
 
         # configure device
@@ -90,14 +94,15 @@ class MDSR(BaseModel):
         loss = self.loss_fn(output_tensor, truth_tensor)
 
         # adjust learning rate
-        lr = self._get_learning_rate()
-        for param_group in self.optim.param_groups:
-            param_group['lr'] = lr
+        # lr = self._get_learning_rate()
+        # for param_group in self.optim.param_groups:
+        #     param_group['lr'] = lr
 
         # do back propagation
         self.optim.zero_grad()
         loss.backward()
         self.optim.step()
+        self.scheduler.step()
 
         # finalize
         self.global_step += 1
