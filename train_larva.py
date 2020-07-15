@@ -78,7 +78,7 @@ def main():
         args.steps_per_epoch = steps_per_epoch
     else:
         steps_per_epoch = args.steps_per_epoch
-    model.steps_per_epoch = steps_per_epoch
+    model.steps_per_epoch = int(steps_per_epoch)
     model.prepare(is_training=True, scales=scale_list, global_step=args.global_step)
 
     # check remaining args

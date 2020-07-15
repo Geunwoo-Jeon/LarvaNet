@@ -154,10 +154,8 @@ class LarvaNet(BaseModel):
             psnr_list.append(psnr)
 
         average_psnr = np.mean(psnr_list)
-        print(f'step {self.global_step}, epoch {self.global_step / args.step_per_epoch:.0f},'
+        print(f'step {self.global_step}, epoch {self.global_step / args.steps_per_epoch:.0f},'
               f' psnr={average_psnr:.8f}, lr = {self.get_lr():.6f}')
-
-        self.scheduler.step(average_psnr)
 
     def upscale(self, input_list, scale):
         # numpy to torch
