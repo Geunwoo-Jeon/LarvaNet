@@ -42,6 +42,7 @@ def initialize_weights(net_l, scale=1):
 class LarvaNet(BaseModel):
     def __init__(self):
         super().__init__()
+        self.steps_per_epoch = 0
 
     def parse_args(self, args):
         parser = argparse.ArgumentParser()
@@ -64,7 +65,6 @@ class LarvaNet(BaseModel):
         # config. parameters
         self.global_step = global_step
         self.epoch = 0
-
         self.scale_list = scales
         for scale in self.scale_list:
             if not (scale in [2, 3, 4]):
@@ -81,15 +81,19 @@ class LarvaNet(BaseModel):
             self.optim = optim.AdamW(
                 filter(lambda p: p.requires_grad, self.model.parameters()),
                 lr=self.args.lr)
-            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
-                threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=True)
+            self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                self.optim, 0.003, total_steps=None, epochs=200, steps_per_epoch=self.steps_per_epoch,
+                anneal_strategy='cos', div_factor=60.0, final_div_factor=100)
+
+            # optim.lr_scheduler.ReduceLROnPlateau(
+            # self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
+            # threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=True)
 
         # configure device
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = self.model.to(self.device)
 
-    def train_step_larva(self, args, val_dataloader, scale, input_tensor, truth_tensor, summary=None):
+    def train_step_larva(self, args, val_dataloader, input_tensor, truth_tensor, summary=None):
         self.global_step += 1
         # make outputs(forward)
         fea = self.model.head(input_tensor)
@@ -270,5 +274,5 @@ class LarvaNetModule(nn.Module):
         for i in range(self.len):
             fea = getattr(self, f'body_{i}')(fea)
         base = self.base(x)
-        out = getattr(self, f'body_{self.len-1}').leg(fea, base)
+        out = getattr(self, f'body_{self.len - 1}').leg(fea, base)
         return out

@@ -26,7 +26,7 @@ def main():
 
     parser.add_argument('--batch_size', type=int, default=16, help='Size of the batches for each training step.')
     parser.add_argument('--input_patch_size', type=int, default=48, help='Size of each input image patch.')
-    parser.add_argument('--step_per_epoch', type=float, help='Num of steps on 1 epoch.')
+    parser.add_argument('--steps_per_epoch', type=float, help='Num of steps on 1 epoch.')
     parser.add_argument('--scales', type=str, default='4',
                         help='Scales of the input images. Use the \',\' character to specify multiple scales (e.g., 2,3,4).')
     parser.add_argument('--cuda_device', type=str, default='0',
@@ -70,6 +70,15 @@ def main():
     MODEL_MODULE = importlib.import_module('models.' + args.model)
     model = MODEL_MODULE.create_model()
     model_args, remaining_args = model.parse_args(remaining_args)
+    # steps per epoch
+    if args.steps_per_epoch is None:
+        batch_data_size = (args.input_patch_size**2)*args.batch_size*3
+        dataset_size = 300*(1024**2)
+        steps_per_epoch = round_to_1(dataset_size/batch_data_size)
+        args.steps_per_epoch = steps_per_epoch
+    else:
+        steps_per_epoch = args.steps_per_epoch
+    model.steps_per_epoch = steps_per_epoch
     model.prepare(is_training=True, scales=scale_list, global_step=args.global_step)
 
     # check remaining args
@@ -98,17 +107,9 @@ def main():
     if dataloader.is_threaded:
         dataloader.start_training_queue_runner(batch_size=args.batch_size, input_patch_size=args.input_patch_size)
 
-    if args.step_per_epoch is None:
-        batch_data_size = (args.input_patch_size**2)*args.batch_size*3
-        dataset_size = 300*(1024**2)
-        step_per_epoch = round_to_1(dataset_size/batch_data_size)
-        args.step_per_epoch = step_per_epoch
-    else:
-        step_per_epoch = args.step_per_epoch
-
     # train
     print('begin training')
-    print(f'{step_per_epoch} steps equal to 1 epoch')
+    print(f'{model.steps_per_epoch} steps equal to 1 epoch')
     try:
         while True:
             scale = model.get_next_train_scale()
@@ -130,7 +131,7 @@ def main():
             np2ts_time = time.time() - check_time
             # train step
             check_time = time.time()
-            loss = model.train_step_larva(args=args, val_dataloader=val_dataloader, scale=scale,
+            loss = model.train_step_larva(args=args, val_dataloader=val_dataloader,
                                           input_tensor=input_tensor, truth_tensor=truth_tensor, summary=summary)
             train_time = time.time() - check_time
 
@@ -138,7 +139,7 @@ def main():
             lr = model.get_lr()
             if args.sleep_ratio > 0 and duration > 0:
                 time.sleep(min(10.0, duration * args.sleep_ratio))
-            if model.global_step < step_per_epoch * 2 and model.global_step % args.log_freq == 0:
+            if model.global_step < model.steps_per_epoch * 2 and model.global_step % args.log_freq == 0:
                 print('step %d, lr %.10f, loss %.6f (%.3f sec/batch)' % (model.global_step, lr, loss, duration))
                 print(f'dataload_time:{dataload_time:.4f}s, np2ts_time:{np2ts_time:.4f}s, '
                       f'train_time: {train_time:.4f}s')
