@@ -109,6 +109,7 @@ class LarvaNet(BaseModel):
         self.optim.zero_grad()
         loss.backward()
         self.optim.step()
+        self.scheduler.step()
 
         if self.global_step == 1:
             self.validate_for_train(args, val_dataloader)
