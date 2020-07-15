@@ -26,6 +26,7 @@ class MDSR(BaseModel):
         parser.add_argument('--edsr_conv_features', type=int, default=64, help='The number of convolutional features.')
         parser.add_argument('--edsr_res_blocks', type=int, default=16, help='The number of residual blocks.')
         parser.add_argument('--edsr_res_weight', type=float, default=1.0, help='The scaling factor.')
+        parser.add_argument('--steps_per_epoch', type=int, default=30000, help='Num of steps that equal to 1 epoch.')
 
         parser.add_argument('--edsr_learning_rate', type=float, default=1e-4, help='Initial learning rate.')
         parser.add_argument('--edsr_learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
@@ -51,15 +52,22 @@ class MDSR(BaseModel):
         # PyTorch model
         self.model = MDSRModule(args=self.args, scale_list=self.scale_list)
 
-        optim_params = []
-        for k, v in self.model.named_parameters():
-            v.requires_grad = False
-            if k.find('transformer') >= 0:
-                v.requires_grad = True
-                optim_params.append(v)
+        # optim_params = []
+        # for k, v in self.model.named_parameters():
+        #     v.requires_grad = False
+        #     if k.find('transformer') >= 0:
+        #         v.requires_grad = True
+        #         optim_params.append(v)
 
         if (is_training):
-            self.optim = optim.Adam(optim_params, lr=self._get_learning_rate())
+            self.optim = optim.Adam(
+                filter(lambda p: p.requires_grad, self.model.parameters()),
+                lr=self._get_learning_rate()
+            )
+
+            # self.scheduler = optim.lr_scheduler.OneCycleLR(
+            #     self.optim, max_lr=0.005, total_steps=None, epochs=200, steps_per_epoch=self.args.steps_per_epoch,
+            #     anneal_strategy='cos', div_factor=50, final_div_factor=100, last_epoch=-1)
             self.loss_fn = nn.L1Loss()
 
         # configure device
@@ -94,10 +102,12 @@ class MDSR(BaseModel):
         for param_group in self.optim.param_groups:
             param_group['lr'] = lr
 
+
         # do back propagation
         self.optim.zero_grad()
         loss.backward()
         self.optim.step()
+        # self.scheduler.step()
 
         # finalize
         self.global_step += 1
@@ -107,11 +117,14 @@ class MDSR(BaseModel):
             summary.add_scalar('loss', loss, self.global_step)
             summary.add_scalar('lr', lr, self.global_step)
 
+            input_tensor_uint8 = input_tensor.clamp(0, 255).byte()
             output_tensor_uint8 = output_tensor.clamp(0, 255).byte()
+            truth_tensor_uint8 = truth_tensor.clamp(0, 255).byte()
+
             for i in range(min(4, len(input_list))):
-                summary.add_image('input/%d' % i, input_list[i], self.global_step)
+                summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], self.global_step)
                 summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.global_step)
-                summary.add_image('truth/%d' % i, truth_list[i], self.global_step)
+                summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.global_step)
 
         return loss.item()
 
@@ -146,7 +159,10 @@ class AAFM(nn.Module):
         self.coef = coef
         self.transformer = nn.Sequential(
             nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=kernel_size, stride=1,
-                      padding=kernel_size//2, groups=num_channels)
+                      padding=kernel_size//2, groups=num_channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=kernel_size, stride=1,
+                      padding=kernel_size // 2, groups=num_channels)
         )
         self.scaling = nn.Sigmoid()
 
