@@ -113,7 +113,7 @@ class LarvaNet(BaseModel):
         if self.global_step == 1:
             self.validate_for_train(args, val_dataloader)
 
-        if self.global_step % args.step_per_epoch == 0:
+        if self.global_step % self.steps_per_epoch == 0:
             self.epoch += 1
             if self.epoch % 5 == 0 and self.epoch != 0:
                 self.validate_for_train(args, val_dataloader)
