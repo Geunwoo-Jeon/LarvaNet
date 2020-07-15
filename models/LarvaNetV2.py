@@ -42,12 +42,14 @@ def initialize_weights(net_l, scale=1):
 class LarvaNet(BaseModel):
     def __init__(self):
         super().__init__()
+        self.steps_per_epoch = 0
 
     def parse_args(self, args):
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--num_modules', type=int, default=2, help='The number of residual blocks at LR domain.')
         parser.add_argument('--num_blocks', type=int, default=16, help='The number of residual blocks at HR domain.')
+        parser.add_argument('--interpolate', type=str, default='bicubic', help='Interpolation method.')
 
         parser.add_argument('--lr', type=float, default=1e-3, help='Initial learning rate.')
         parser.add_argument('--lr_decay', type=float, default=0.5, help='Learning rate decay factor.')
@@ -63,7 +65,6 @@ class LarvaNet(BaseModel):
         # config. parameters
         self.global_step = global_step
         self.epoch = 0
-
         self.scale_list = scales
         for scale in self.scale_list:
             if not (scale in [2, 3, 4]):
@@ -80,37 +81,49 @@ class LarvaNet(BaseModel):
             self.optim = optim.AdamW(
                 filter(lambda p: p.requires_grad, self.model.parameters()),
                 lr=self.args.lr)
-            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
-                threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=True)
+            self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                self.optim, 0.001, total_steps=None, epochs=100, steps_per_epoch=self.steps_per_epoch,
+                anneal_strategy='linear', div_factor=20.0, final_div_factor=100)
+
+            # optim.lr_scheduler.ReduceLROnPlateau(
+            # self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
+            # threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=True)
 
         # configure device
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.model = self.model.to(self.device)
 
-    def train_step_larva(self, args, val_dataloader, scale, input_tensor, truth_tensor, summary=None):
+    def train_step_larva(self, args, val_dataloader, input_tensor, truth_tensor, summary=None):
         self.global_step += 1
         # make outputs(forward)
         fea = self.model.head(input_tensor)
+        base = self.model.base(input_tensor)
         loss = 0
+        features = []
         for i in range(self.args.num_modules):
-            fea = getattr(self.model, f'body_{i}')(fea)
-            out = getattr(self.model, f'body_{i}').leg(fea)
-            out = out + base
+            if i == 0:
+                features.append(getattr(self, f'body_{i}')(fea))
+            else:
+                features.append(getattr(self, f'body_{i}')(features[i-1]))
+            out = getattr(self.model, f'body_{i}').leg(features[i], base)
             loss += self.loss_fn(out, truth_tensor)
-        loss = loss / self.args.num_modules
+        out = self.model.tail(features, base)
+        loss += self.loss_fn(out, truth_tensor)
+        loss = loss / (self.args.num_modules + 1)
 
         # do back propagation
         self.optim.zero_grad()
         loss.backward()
         self.optim.step()
+        self.scheduler.step()
 
         if self.global_step == 1:
             self.validate_for_train(args, val_dataloader)
 
-        if self.global_step % args.step_per_epoch == 0:
+        if self.global_step % self.steps_per_epoch == 0:
             self.epoch += 1
             if self.epoch % 5 == 0 and self.epoch != 0:
+                print(f'step {self.global_step}, loss = {loss.item()}')
                 self.validate_for_train(args, val_dataloader)
                 # write summary
                 lr = self.get_lr()
@@ -149,10 +162,8 @@ class LarvaNet(BaseModel):
             psnr_list.append(psnr)
 
         average_psnr = np.mean(psnr_list)
-        print(f'step {self.global_step}, epoch {self.global_step / args.step_per_epoch:.0f},'
+        print(f'step {self.global_step}, epoch {self.global_step / args.steps_per_epoch:.0f},'
               f' psnr={average_psnr:.8f}, lr = {self.get_lr():.6f}')
-
-        self.scheduler.step(average_psnr)
 
     def upscale(self, input_list, scale):
         # numpy to torch
@@ -204,6 +215,31 @@ class ResidualBlock(nn.Module):
         return output
 
 
+class CAlayer(nn.Module):
+    def __init__(self, num_channels, reduction=12):
+        super(CAlayer, self).__init__()
+        self.linear_res = nn.Sequential(
+            nn.Linear(in_features=num_channels, out_features=num_channels // reduction),
+            nn.ReLU(inplace=True),
+            nn.Linear(in_features=num_channels // reduction, out_features=num_channels)
+        )
+        self.scaling = nn.Sigmoid()
+
+    def forward(self, x):
+        N, C, W, H = x.size()
+        var = x.view(N, C, -1).var(dim=2, keepdim=True)
+        mean_var = var.view(N, -1).mean(dim=-1, keepdim=True)
+        var_var = var.view(N, -1).var(dim=-1, keepdim=True) + 1e-5
+        std_var = var_var.sqrt()
+        normalized_var = (var - mean_var) / std_var
+        normalized_var = normalized_var.view(N, C)
+        val_res = self.linear_res(normalized_var)
+        normalized_var = normalized_var.view(N, C, 1, 1)
+        val_res = val_res.view(N, C, 1, 1)
+        y = self.scaling(normalized_var + val_res).expand(N, C, W, H)
+        return x * y
+
+
 class LarvaHead(nn.Module):
     def __init__(self):
         super(LarvaHead, self).__init__()
@@ -225,10 +261,12 @@ class LarvaBody(nn.Module):
         for i in range(args.num_blocks):
             res_block_layers.append(ResidualBlock(num_channels=num_filters))
         self.res_blocks = nn.Sequential(*res_block_layers)
+        self.CA = CAlayer(num_channels=num_filters)
         self.leg = LarvaLeg()
 
     def forward(self, x):
         fea = self.res_blocks(x)
+        fea = self.CA(fea)
         return x + fea
 
 
@@ -244,9 +282,35 @@ class LarvaLeg(nn.Module):
         initialize_weights(self.recon_block, 0.1)
         self.upsample = nn.PixelShuffle(4)
 
-    def forward(self, fea):
+    def forward(self, fea, base):
         fea = self.recon_block(fea)
         out = self.upsample(fea)
+        out += base
+        return out
+
+
+class LarvaTail(nn.Module):
+    def __init__(self, num_modules):
+        super(LarvaTail, self).__init__()
+        num_filters = 48
+        self.CA = CAlayer(num_channels=num_filters * num_modules)
+        self.merge_conv = nn.Conv2d(in_channels=num_filters * num_modules, out_channels=num_filters,
+                                    kernel_size=3, stride=1, padding=1)
+        self.recon_block = nn.Sequential(
+            nn.Conv2d(in_channels=num_filters, out_channels=num_filters, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=num_filters, out_channels=num_filters, kernel_size=3, stride=1, padding=1)
+        )
+        initialize_weights([self.recon_block, self.merge_conv], 0.1)
+        self.upsample = nn.PixelShuffle(4)
+
+    def forward(self, features, base):
+        fea = torch.cat(features, dim=1)
+        fea = self.CA(fea)
+        fea = self.merge_conv(fea)
+        fea = self.recon_block(fea)
+        out = self.upsample(fea)
+        out += base
         return out
 
 
@@ -254,13 +318,24 @@ class LarvaNetModule(nn.Module):
     def __init__(self, args):
         super(LarvaNetModule, self).__init__()
         self.len = args.num_modules
+        self.interpolate = args.interpolate
         self.head = LarvaHead()
         for i in range(self.len):
             setattr(self, f'body_{i}', LarvaBody(args=args))
+        self.tail = LarvaTail(self.len)
+
+    def base(self, x):
+        base = F.interpolate(x, scale_factor=4, mode=self.interpolate, align_corners=False)
+        return base
 
     def forward(self, x):
         fea = self.head(x)
+        features = []
         for i in range(self.len):
-            fea = getattr(self, f'body_{i}')(fea)
-        out = getattr(self, f'body_{self.len-1}').leg(fea)
+            if i == 0:
+                features.append(getattr(self, f'body_{i}')(fea))
+            else:
+                features.append(getattr(self, f'body_{i}')(features[i-1]))
+        base = self.base(x)
+        out = self.tail(features, base)
         return out
