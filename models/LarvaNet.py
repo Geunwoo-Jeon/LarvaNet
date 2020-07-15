@@ -82,8 +82,8 @@ class LarvaNet(BaseModel):
                 filter(lambda p: p.requires_grad, self.model.parameters()),
                 lr=self.args.lr)
             self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                self.optim, 0.003, total_steps=None, epochs=200, steps_per_epoch=self.steps_per_epoch,
-                anneal_strategy='cos', div_factor=60.0, final_div_factor=100)
+                self.optim, 0.0008, total_steps=None, epochs=200, steps_per_epoch=self.steps_per_epoch,
+                anneal_strategy='cos', div_factor=20.0, final_div_factor=100)
 
             # optim.lr_scheduler.ReduceLROnPlateau(
             # self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
