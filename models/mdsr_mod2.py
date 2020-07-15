@@ -52,12 +52,12 @@ class MDSR(BaseModel):
         # PyTorch model
         self.model = MDSRModule(args=self.args, scale_list=self.scale_list)
 
-        # optim_params = []
-        # for k, v in self.model.named_parameters():
-        #     v.requires_grad = False
-        #     if k.find('transformer') >= 0:
-        #         v.requires_grad = True
-        #         optim_params.append(v)
+        optim_params = []
+        for k, v in self.model.named_parameters():
+            v.requires_grad = False
+            if k.find('transformer') >= 0:
+                v.requires_grad = True
+                optim_params.append(v)
 
         if (is_training):
             self.optim = optim.Adam(
@@ -173,10 +173,12 @@ class AAFM(nn.Module):
             tmp = x + self.transformer(x)
             N, C, W, H = tmp.size()
             tmp_var = tmp.view(N, C, -1).var(dim=-1, keepdim=True)
-            mean_var = tmp_var.view(N, -1).mean(dim=-1, keepdim=True).unsqueeze(-1).repeat(1, C, 1)
-            std_var = tmp_var.view(N, -1).std(dim=-1, keepdim=True).unsqueeze(-1).repeat(1, C, 1)
-            tmp_var = (tmp_var - mean_var) / (std_var+1e-10)
-            modulation_map_CSI = tmp_var.unsqueeze(-1).repeat(1, 1, W, H)
+            mean_var = tmp_var.view(N, -1).mean(dim=-1, keepdim=True).unsqueeze(-1).expand_as(tmp_var)
+            var_var = tmp_var.view(N, -1).var(dim=-1, keepdim=True).unsqueeze(-1).expand_as(tmp_var) + 1e-5
+            std_var = var_var.sqrt()
+
+            tmp_var = (tmp_var - mean_var) / std_var
+            modulation_map_CSI = tmp_var.unsqueeze(-1).expand_as(x)
             tmp = tmp * self.scaling(modulation_map_CSI)
             return self.coef * tmp + x
 
