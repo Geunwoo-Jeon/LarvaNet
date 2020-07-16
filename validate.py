@@ -4,6 +4,8 @@ import json
 import os
 import time
 
+import torch
+
 import dataloaders
 import models
 from utils import image_utils
@@ -85,34 +87,34 @@ def main():
   for scale in scale_list:
     duration_list = []
     psnr_list = []
+    with torch.no_grad():
+      for image_index in range(num_images):
+        input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index, scale=scale)
 
-    for image_index in range(num_images):
-      input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index, scale=scale)
+        start_time = time.perf_counter()
+        if (args.chop_forward):
+          output_image = image_utils.upscale_with_chop_forward(model=model, input_image=input_image, scale=scale, overlap_size=args.chop_overlap_size)
+        else:
+          output_image = model.upscale(input_list=[input_image], scale=scale)[0]
+        end_time = time.perf_counter()
 
-      start_time = time.perf_counter()
-      if (args.chop_forward):
-        output_image = image_utils.upscale_with_chop_forward(model=model, input_image=input_image, scale=scale, overlap_size=args.chop_overlap_size)
-      else:
-        output_image = model.upscale(input_list=[input_image], scale=scale)[0]
-      end_time = time.perf_counter()
+        duration = end_time - start_time
+        duration_list.append(duration)
 
-      duration = end_time - start_time
-      duration_list.append(duration)
+        truth_image = _image_to_uint8(truth_image)
+        output_image = _image_to_uint8(output_image)
 
-      truth_image = _image_to_uint8(truth_image)
-      output_image = _image_to_uint8(output_image)
+        if (args.save_path is not None):
+          os.makedirs(os.path.join(args.save_path, 'x%d' % (scale)), exist_ok=True)
+          output_image_path = os.path.join(args.save_path, 'x%d' % (scale), image_name+'.png')
+          _save_image(output_image, output_image_path)
 
-      if (args.save_path is not None):
-        os.makedirs(os.path.join(args.save_path, 'x%d' % (scale)), exist_ok=True)
-        output_image_path = os.path.join(args.save_path, 'x%d' % (scale), image_name+'.png')
-        _save_image(output_image, output_image_path)
+        truth_image = _fit_truth_image_size(output_image=output_image, truth_image=truth_image)
 
-      truth_image = _fit_truth_image_size(output_image=output_image, truth_image=truth_image)
+        psnr = _image_psnr(output_image=output_image, truth_image=truth_image)
 
-      psnr = _image_psnr(output_image=output_image, truth_image=truth_image)
-
-      psnr_list.append(psnr)
-      print('x%d, %d/%d, psnr=%.2f, duration=%.4f' % (scale, image_index+1, num_images, psnr, duration))
+        psnr_list.append(psnr)
+        print('x%d, %d/%d, psnr=%.2f, duration=%.4f' % (scale, image_index+1, num_images, psnr, duration))
 
     average_psnr = np.mean(psnr_list)
     average_psnr_dict[scale] = average_psnr

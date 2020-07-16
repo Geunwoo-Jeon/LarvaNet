@@ -51,7 +51,7 @@ class LarvaNet(BaseModel):
         parser.add_argument('--num_blocks', type=int, default=16, help='The number of residual blocks at HR domain.')
         parser.add_argument('--interpolate', type=str, default='bicubic', help='Interpolation method.')
 
-        parser.add_argument('--lr', type=float, default=1e-3, help='Initial learning rate.')
+        parser.add_argument('--lr', type=float, default=2e-4, help='Initial learning rate.')
         parser.add_argument('--lr_decay', type=float, default=0.5, help='Learning rate decay factor.')
         parser.add_argument('--threshold', type=float, default=0.005, help='Learning rate decay factor.')
         parser.add_argument('--min_lr', type=float, default=1e-5, help='Initial learning rate.')
@@ -81,9 +81,12 @@ class LarvaNet(BaseModel):
             self.optim = optim.AdamW(
                 filter(lambda p: p.requires_grad, self.model.parameters()),
                 lr=self.args.lr)
-            self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                self.optim, 0.0005, total_steps=None, epochs=200, steps_per_epoch=self.steps_per_epoch,
-                anneal_strategy='linear', div_factor=50.0, final_div_factor=10)
+            self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+                self.optim, self.steps_per_epoch * 150, T_mult=1, eta_min=self.args.lr/10, last_epoch=-1)
+
+            # self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            #     self.optim, 0.0005, total_steps=None, epochs=200, steps_per_epoch=self.steps_per_epoch,
+            #     anneal_strategy='linear', div_factor=50.0, final_div_factor=10)
 
             # optim.lr_scheduler.ReduceLROnPlateau(
             # self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
@@ -149,17 +152,17 @@ class LarvaNet(BaseModel):
         print('begin validation')
         num_images = dataloader.get_num_images()
         psnr_list = []
+        with torch.no_grad():
+            for image_index in range(num_images):
+                input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index,
+                                                                                 scale=4)
+                output_image = self.upscale(input_list=[input_image], scale=4)[0]
+                truth_image = validate._image_to_uint8(truth_image)
+                output_image = validate._image_to_uint8(output_image)
+                truth_image = validate._fit_truth_image_size(output_image=output_image, truth_image=truth_image)
 
-        for image_index in range(num_images):
-            input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index,
-                                                                             scale=4)
-            output_image = self.upscale(input_list=[input_image], scale=4)[0]
-            truth_image = validate._image_to_uint8(truth_image)
-            output_image = validate._image_to_uint8(output_image)
-            truth_image = validate._fit_truth_image_size(output_image=output_image, truth_image=truth_image)
-
-            psnr = validate._image_psnr(output_image=output_image, truth_image=truth_image)
-            psnr_list.append(psnr)
+                psnr = validate._image_psnr(output_image=output_image, truth_image=truth_image)
+                psnr_list.append(psnr)
 
         average_psnr = np.mean(psnr_list)
         print(f'step {self.global_step}, epoch {self.global_step / args.steps_per_epoch:.0f},'
@@ -180,7 +183,15 @@ class LarvaNet(BaseModel):
         torch.save(self.model.state_dict(), save_path)
 
     def restore(self, ckpt_path, target=None):
-        self.model.load_state_dict(torch.load(ckpt_path, map_location=self.device))
+        pretrained_dict = torch.load(ckpt_path)
+        model_dict = self.model.state_dict()
+
+        # 1. filter out unnecessary keys
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+        # 2. overwrite entries in the existing state dict
+        model_dict.update(pretrained_dict)
+        # 3. load the new state dict
+        self.model.load_state_dict(model_dict, map_location=self.device)
 
     def get_model(self):
         return self.model
