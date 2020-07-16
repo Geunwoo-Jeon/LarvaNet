@@ -30,6 +30,7 @@ def main():
   parser.add_argument('--output_path', type=str, default='SR', help='Base path of the output images.')
 
   parser.add_argument('--chop_forward', action='store_true', help='Employ chop-forward to reduce the memory usage.')
+  parser.add_argument('--self_ensemble', action='store_true', help='Employ self_ensemble for improving quality.')
   parser.add_argument('--chop_overlap_size', type=int, default=20, help='The overlapping size for the chop-forward process. Should be even.')
 
   parser.add_argument('--isHsv', action='store_true',
@@ -84,7 +85,26 @@ def main():
 
     start_time = time.perf_counter()
     if (args.chop_forward):
-      output_image = image_utils.upscale_with_chop_forward(model=model, input_image=input_image, scale=args.scale, overlap_size=args.chop_overlap_size)
+      if (args.self_ensemble):
+        tmp_img = np.zeros([3, input_image.shape[1]*args.scale, input_image.shape[2]*args.scale])
+        for i in range(2):
+          if i == 0:
+            flip_img = input_image[:,:,::-1]
+            for j in range(4):
+              rot_flip_img = np.rot90(flip_img, j, axes=(1,2))
+              out_img = image_utils.upscale_with_chopchopchop_forward(model=model, input_image=rot_flip_img, scale=args.scale, overlap_size=args.chop_overlap_size)
+              tmp = np.rot90(out_img, 4-j, axes=(1,2))
+              tmp_img += tmp[:,:,::-1]
+          else:
+            for k in range(4):
+              rot_img = np.rot90(input_image, k, axes=(1,2))
+              out_img = image_utils.upscale_with_chopchopchop_forward(model=model, input_image=rot_img, scale=args.scale, overlap_size=args.chop_overlap_size)
+              tmp_img += np.rot90(out_img, 4-k, axes=(1,2))
+        output_image = tmp_img / 8
+      else:
+        # output_image = image_utils.upscale_with_chop_forward(model=model, input_image=input_image, scale=args.scale, overlap_size=args.chop_overlap_size)
+        output_image = image_utils.upscale_with_chopchopchop_forward(model=model, input_image=input_image, scale=args.scale, overlap_size=args.chop_overlap_size)
+
     else:
       output_image = model.upscale(input_list=[input_image], scale=args.scale)[0]
     end_time = time.perf_counter()
