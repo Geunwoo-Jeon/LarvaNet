@@ -191,7 +191,8 @@ class LarvaNet(BaseModel):
         # 2. overwrite entries in the existing state dict
         model_dict.update(pretrained_dict)
         # 3. load the new state dict
-        self.model.load_state_dict(model_dict, map_location=self.device)
+        self.model.load_state_dict(model_dict)
+        self.model.to(self.device)
 
     def get_model(self):
         return self.model
