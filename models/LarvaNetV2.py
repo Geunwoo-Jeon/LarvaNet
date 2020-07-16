@@ -214,31 +214,31 @@ class ResidualBlock(nn.Module):
         output = torch.add(x, res)
         return output
 
-
-class CAlayer(nn.Module):
-    def __init__(self, num_channels, reduction=12):
-        super(CAlayer, self).__init__()
-        self.linear_res = nn.Sequential(
-            nn.Linear(in_features=num_channels, out_features=num_channels // reduction),
-            nn.ReLU(inplace=True),
-            nn.Linear(in_features=num_channels // reduction, out_features=num_channels)
-        )
-        initialize_weights(self.linear_res, 0.1)
-        self.scaling = nn.Sigmoid()
-
-    def forward(self, x):
-        N, C, W, H = x.size()
-        var = x.view(N, C, -1).var(dim=2, keepdim=True)
-        var = var.view(N, C)
-        mean_var = var.mean(dim=1, keepdim=True)
-        var_var = var.var(dim=1, keepdim=True) + 1e-5
-        std_var = var_var.sqrt()
-        normalized_var = (var - mean_var) / std_var
-        val_res = self.linear_res(normalized_var)
-        normalized_var = normalized_var.view(N, C, 1, 1)
-        val_res = val_res.view(N, C, 1, 1)
-        y = self.scaling(normalized_var + val_res).expand(N, C, W, H)
-        return x * y
+#
+# class CAlayer(nn.Module):
+#     def __init__(self, num_channels, reduction=12):
+#         super(CAlayer, self).__init__()
+#         self.linear_res = nn.Sequential(
+#             nn.Linear(in_features=num_channels, out_features=num_channels // reduction),
+#             nn.ReLU(inplace=True),
+#             nn.Linear(in_features=num_channels // reduction, out_features=num_channels)
+#         )
+#         initialize_weights(self.linear_res, 0.1)
+#         self.scaling = nn.Sigmoid()
+#
+#     def forward(self, x):
+#         N, C, W, H = x.size()
+#         var = x.view(N, C, -1).var(dim=2, keepdim=True)
+#         var = var.view(N, C)
+#         mean_var = var.mean(dim=1, keepdim=True)
+#         var_var = var.var(dim=1, keepdim=True) + 1e-5
+#         std_var = var_var.sqrt()
+#         normalized_var = (var - mean_var) / std_var
+#         val_res = self.linear_res(normalized_var)
+#         normalized_var = normalized_var.view(N, C, 1, 1)
+#         val_res = val_res.view(N, C, 1, 1)
+#         y = self.scaling(normalized_var + val_res).expand(N, C, W, H)
+#         return x * y
 
 
 class LarvaHead(nn.Module):
@@ -262,12 +262,10 @@ class LarvaBody(nn.Module):
         for i in range(args.num_blocks):
             res_block_layers.append(ResidualBlock(num_channels=num_filters))
         self.res_blocks = nn.Sequential(*res_block_layers)
-        self.CA = CAlayer(num_channels=num_filters)
         self.leg = LarvaLeg()
 
     def forward(self, x):
         fea = self.res_blocks(x)
-        fea = self.CA(fea)
         return x + fea
 
 
@@ -294,7 +292,6 @@ class LarvaTail(nn.Module):
     def __init__(self, num_modules):
         super(LarvaTail, self).__init__()
         num_filters = 48
-        self.CA = CAlayer(num_channels=num_filters * num_modules)
         self.merge_conv = nn.Conv2d(in_channels=num_filters * num_modules, out_channels=num_filters,
                                     kernel_size=3, stride=1, padding=1)
         self.recon_block = nn.Sequential(
@@ -307,7 +304,6 @@ class LarvaTail(nn.Module):
 
     def forward(self, features, base):
         fea = torch.cat(features, dim=1)
-        fea = self.CA(fea)
         fea = self.merge_conv(fea)
         fea = self.recon_block(fea)
         out = self.upsample(fea)
