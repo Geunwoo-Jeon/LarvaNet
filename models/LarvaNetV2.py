@@ -83,7 +83,7 @@ class LarvaNet(BaseModel):
                 lr=self.args.lr)
             self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
                 self.optim, 0.0005, total_steps=None, epochs=200, steps_per_epoch=self.steps_per_epoch,
-                anneal_strategy='linear', div_factor=5.0, final_div_factor=1000)
+                anneal_strategy='linear', div_factor=50.0, final_div_factor=10)
 
             # optim.lr_scheduler.ReduceLROnPlateau(
             # self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
@@ -223,6 +223,7 @@ class CAlayer(nn.Module):
             nn.ReLU(inplace=True),
             nn.Linear(in_features=num_channels // reduction, out_features=num_channels)
         )
+        initialize_weights(self.linear_res, 0.1)
         self.scaling = nn.Sigmoid()
 
     def forward(self, x):
