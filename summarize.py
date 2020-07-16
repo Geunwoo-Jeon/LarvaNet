@@ -18,6 +18,7 @@ def main():
 
   parser.add_argument('--model', type=str, default='edsr', help='Name of the model.')
   parser.add_argument('--scale', type=int, default=4, help='Scale of the input images.')
+  parser.add_argument('--scales', type=str, default='4', help='Scales of the input images. Use the \',\' character to specify multiple scales (e.g., 2,3,4).')
 
   parser.add_argument('--input_width', type=int, default=224, help='Width of a dummy input.')
   parser.add_argument('--input_height', type=int, default=224, help='Height of a dummy input.')
@@ -27,7 +28,7 @@ def main():
 
   # initialize
   os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
-  scale_list = [args.scale]
+  scale_list = list(map(lambda x: int(x), args.scales.split(',')))
 
   # model
   print('prepare model - %s' % (args.model))
