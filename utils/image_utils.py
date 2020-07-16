@@ -18,9 +18,21 @@ def upscale_with_chop_forward(model, input_image, scale, overlap_size):
 
   input_split_images = _split_image(input_image, chop=True, overlap_size=overlap_size)
   output_split_images = []
+
   for input_split in input_split_images:
-    output_split = model.upscale(input_list=[input_split], scale=scale)[0]
-    output_split_images.append(output_split)
+    input_split_2_images = _split_image(input_split, chop=True, overlap_size=overlap_size)
+    output_split_2_images = []
+    for input_split_2 in input_split_2_images:
+      input_split_3_images = _split_image(input_split_2, chop=True, overlap_size=overlap_size)
+      output_split_3_images = []
+      for input_split_3 in input_split_3_images:
+        output_split_3 = model.upscale([input_split_3], scale=scale)[0]
+        output_split_3_images.append(output_split_3)
+      output_image_tmp_3 = _combine_images(output_split_3_images, input_image=input_split_2, scale=scale, chop=True, overlap_size=overlap_size)
+      output_split_2_images.append(output_image_tmp_3)
+    output_image_tmp = _combine_images(output_split_2_images, input_image=input_split, scale=scale, chop=True, overlap_size=overlap_size)
+    # output_split = model.upscale(input_list=[input_split], scale=scale)[0]
+    output_split_images.append(output_image_tmp)
   
   output_image = _combine_images(output_split_images, input_image=input_image, scale=scale, chop=True, overlap_size=overlap_size)
 
