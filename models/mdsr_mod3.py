@@ -94,9 +94,9 @@ class MDSR(BaseModel):
         loss = self.loss_fn(output_tensor, truth_tensor)
 
         # adjust learning rate
-        # lr = self._get_learning_rate()
-        # for param_group in self.optim.param_groups:
-        #     param_group['lr'] = lr
+        lr = self._get_learning_rate()
+        for param_group in self.optim.param_groups:
+            param_group['lr'] = lr
 
         # do back propagation
         self.optim.zero_grad()
