@@ -82,8 +82,8 @@ class LarvaNet(BaseModel):
                 filter(lambda p: p.requires_grad, self.model.parameters()),
                 lr=self.args.lr)
             self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                self.optim, 0.001, total_steps=None, epochs=100, steps_per_epoch=self.steps_per_epoch,
-                anneal_strategy='linear', div_factor=20.0, final_div_factor=100)
+                self.optim, 0.0005, total_steps=None, epochs=200, steps_per_epoch=self.steps_per_epoch,
+                anneal_strategy='linear', div_factor=5.0, final_div_factor=1000)
 
             # optim.lr_scheduler.ReduceLROnPlateau(
             # self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
@@ -102,9 +102,9 @@ class LarvaNet(BaseModel):
         features = []
         for i in range(self.args.num_modules):
             if i == 0:
-                features.append(getattr(self, f'body_{i}')(fea))
+                features.append(getattr(self.model, f'body_{i}')(fea))
             else:
-                features.append(getattr(self, f'body_{i}')(features[i-1]))
+                features.append(getattr(self.model, f'body_{i}')(features[i-1]))
             out = getattr(self.model, f'body_{i}').leg(features[i], base)
             loss += self.loss_fn(out, truth_tensor)
         out = self.model.tail(features, base)
@@ -228,11 +228,11 @@ class CAlayer(nn.Module):
     def forward(self, x):
         N, C, W, H = x.size()
         var = x.view(N, C, -1).var(dim=2, keepdim=True)
-        mean_var = var.view(N, -1).mean(dim=-1, keepdim=True)
-        var_var = var.view(N, -1).var(dim=-1, keepdim=True) + 1e-5
+        var = var.view(N, C)
+        mean_var = var.mean(dim=1, keepdim=True)
+        var_var = var.var(dim=1, keepdim=True) + 1e-5
         std_var = var_var.sqrt()
         normalized_var = (var - mean_var) / std_var
-        normalized_var = normalized_var.view(N, C)
         val_res = self.linear_res(normalized_var)
         normalized_var = normalized_var.view(N, C, 1, 1)
         val_res = val_res.view(N, C, 1, 1)

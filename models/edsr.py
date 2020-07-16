@@ -117,7 +117,10 @@ class EDSR(BaseModel):
     # finalize
     return output_tensor.detach().cpu().numpy()
 
-  
+  def fwd_runtime(self, input_tensor):
+    output_tensor = self.model(input_tensor)
+    return output_tensor
+
   def _get_learning_rate(self):
     return self.args.edsr_learning_rate * (self.args.edsr_learning_rate_decay ** (self.global_step // self.args.edsr_learning_rate_decay_steps))
   

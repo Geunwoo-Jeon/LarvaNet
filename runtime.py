@@ -71,6 +71,7 @@ def main():
       runtime_list.append(runtime)
       print(f'{image_index+1}/{num_images}, image load time={im_load_time:.4f},'
             f'image transform time={im_tf_time:.4f}, runtime={runtime:.4f}')
+      torch.cuda.empty_cache()
     average_runtime = np.mean(runtime_list)
     print(f'runtime={average_runtime:.4f}')
 
