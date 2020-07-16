@@ -40,6 +40,7 @@ def main():
 
   # initialize
   os.environ['CUDA_VISIBLE_DEVICES'] = args.cuda_device
+  # scale_list = [args.scale]
   scale_list = [2, 3, 4]
   os.makedirs(args.output_path, exist_ok=True)
 
