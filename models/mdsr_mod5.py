@@ -26,7 +26,7 @@ class MDSR(BaseModel):
         parser.add_argument('--edsr_conv_features', type=int, default=64, help='The number of convolutional features.')
         parser.add_argument('--edsr_res_blocks', type=int, default=16, help='The number of residual blocks.')
         parser.add_argument('--edsr_res_weight', type=float, default=1.0, help='The scaling factor.')
-        parser.add_argument('--steps_per_epoch', type=int, default=30000, help='Num of steps that equal to 1 epoch.')
+        parser.add_argument('--steps_per_epoch', type=int, default=3000, help='Num of steps that equal to 1 epoch.')
 
         parser.add_argument('--edsr_learning_rate', type=float, default=1e-4, help='Initial learning rate.')
         parser.add_argument('--edsr_learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
@@ -52,19 +52,18 @@ class MDSR(BaseModel):
         # PyTorch model
         self.model = MDSRModule(args=self.args, scale_list=self.scale_list)
 
-        optim_params = []
-        for k, v in self.model.named_parameters():
-            v.requires_grad = False
-            if k.find('transformer') >= 0:
-                v.requires_grad = True
-                optim_params.append(v)
+        # optim_params = []
+        # for k, v in self.model.named_parameters():
+        #     v.requires_grad = False
+        #     if k.find('mam') >= 0:
+        #         v.requires_grad = True
+        #         optim_params.append(v)
 
         if (is_training):
             self.optim = optim.Adam(
                 filter(lambda p: p.requires_grad, self.model.parameters()),
                 lr=self._get_learning_rate()
             )
-
             # self.scheduler = optim.lr_scheduler.OneCycleLR(
             #     self.optim, max_lr=0.005, total_steps=None, epochs=200, steps_per_epoch=self.args.steps_per_epoch,
             #     anneal_strategy='cos', div_factor=50, final_div_factor=100, last_epoch=-1)
@@ -102,12 +101,10 @@ class MDSR(BaseModel):
         for param_group in self.optim.param_groups:
             param_group['lr'] = lr
 
-
         # do back propagation
         self.optim.zero_grad()
         loss.backward()
         self.optim.step()
-        # self.scheduler.step()
 
         # finalize
         self.global_step += 1
@@ -120,11 +117,10 @@ class MDSR(BaseModel):
             input_tensor_uint8 = input_tensor.clamp(0, 255).byte()
             output_tensor_uint8 = output_tensor.clamp(0, 255).byte()
             truth_tensor_uint8 = truth_tensor.clamp(0, 255).byte()
-
             for i in range(min(4, len(input_list))):
                 summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], self.global_step)
                 summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.global_step)
-                summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.global_step)
+                summary.add_image('truth/%d' % i, truth_tensor_uint8[i, : ,: ,:], self.global_step)
 
         return loss.item()
 
@@ -153,34 +149,41 @@ class MeanShift(nn.Conv2d):
             params.requires_grad = False
 
 
-class AAFM(nn.Module):
-    def __init__(self, num_channels, kernel_size=3, coef=1):
-        super(AAFM, self).__init__()
+class MAMLayer(nn.Module):
+    def __init__(self, num_channels, reduction=16, coef=1):
+        super(MAMLayer, self).__init__()
         self.coef = coef
-        self.transformer = nn.Sequential(
-            nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=kernel_size, stride=1,
-                      padding=kernel_size//2, groups=num_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=kernel_size, stride=1,
-                      padding=kernel_size // 2, groups=num_channels)
+        self.mam_icd = nn.Sequential(
+          nn.Conv2d(in_channels=num_channels, out_channels=num_channels//reduction, kernel_size=1, stride=1, padding=0),
+          nn.ReLU(inplace=True),
+          nn.Conv2d(in_channels=num_channels//reduction, out_channels=num_channels, kernel_size=1, stride=1, padding=0)
         )
+        self.mam_csd = nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=3, padding=1, groups=num_channels)
         self.scaling = nn.Sigmoid()
 
     def forward(self, x):
         if self.coef == 0:
             return x
         else:
-            tmp = x + self.transformer(x)
-            N, C, W, H = tmp.size()
-            tmp_var = tmp.view(N, C, -1).var(dim=-1, keepdim=True)
-            mean_var = tmp_var.view(N, -1).mean(dim=-1, keepdim=True).unsqueeze(-1).expand_as(tmp_var)
-            var_var = tmp_var.view(N, -1).var(dim=-1, keepdim=True).unsqueeze(-1).expand_as(tmp_var) + 1e-5
-            std_var = var_var.sqrt()
+            N, _, _, _ = x.size()
 
-            tmp_var = (tmp_var - mean_var) / std_var
-            modulation_map_CSI = tmp_var.unsqueeze(-1).expand_as(x)
-            tmp = tmp * self.scaling(modulation_map_CSI)
-            return self.coef * tmp + x
+            w_variation = torch.mean(torch.abs(x[:, :, :, :-1] - x[:, :, :, 1:]), dim=(2, 3))
+            h_variation = torch.mean(torch.abs(x[:, :, :-1, :] - x[:, :, 1:, :]), dim=(2, 3))
+            tmp_tv = (w_variation + h_variation) * 0.5
+            mean_var = tmp_tv.view(N, -1).mean(dim=-1, keepdim=True).expand_as(tmp_tv)
+            var_var = tmp_tv.view(N, -1).var(dim=-1, keepdim=True).expand_as(tmp_tv) + 1e-5
+            std_var = var_var.sqrt()
+            tmp_tv = (tmp_tv - mean_var) / std_var
+
+            modulation_map_CSI = tmp_tv.unsqueeze(-1).unsqueeze(-1).expand_as(x)
+            modulation_map_ICD = self.mam_icd(tmp_tv.unsqueeze(-1).unsqueeze(-1)).expand_as(x)
+            torch.cuda.synchronize()
+            modulation_map_CSD = self.mam_csd(x)
+            torch.cuda.synchronize()
+
+
+            return x * self.scaling(modulation_map_CSI + modulation_map_ICD+modulation_map_CSD)
+
 
 class ResidualBlock(nn.Module):
     def __init__(self, num_channels, kernel_size=3, weight=1.0, coef=1):
@@ -191,15 +194,14 @@ class ResidualBlock(nn.Module):
                       padding=kernel_size // 2),
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=kernel_size, stride=1,
-                      padding=kernel_size // 2)
+                      padding=kernel_size // 2),
+            MAMLayer(num_channels=num_channels, coef=coef)
         )
 
-        self.aafm = AAFM(num_channels=num_channels, coef=self.coef)
         self.weight = weight
 
     def forward(self, x):
         res = self.body(x).mul(self.weight)
-        res = self.aafm(res)
         output = torch.add(x, res)
         return output
 

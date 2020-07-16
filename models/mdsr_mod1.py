@@ -26,7 +26,6 @@ class MDSR(BaseModel):
         parser.add_argument('--edsr_conv_features', type=int, default=64, help='The number of convolutional features.')
         parser.add_argument('--edsr_res_blocks', type=int, default=16, help='The number of residual blocks.')
         parser.add_argument('--edsr_res_weight', type=float, default=1.0, help='The scaling factor.')
-        parser.add_argument('--steps_per_epoch', type=int, default=30000, help='Num of steps that equal to 1 epoch.')
 
         parser.add_argument('--edsr_learning_rate', type=float, default=1e-4, help='Initial learning rate.')
         parser.add_argument('--edsr_learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
@@ -46,28 +45,17 @@ class MDSR(BaseModel):
         for scale in self.scale_list:
             if (not scale in [2, 3, 4]):
                 raise ValueError('Unsupported scale is provided.')
-        if len(self.scale_list) < 3:
-          raise ValueError('Three scales should be provided.')
+        # if len(self.scale_list) != 1:
+        #   raise ValueError('Only one scale should be provided.')
+        # self.scale = self.scale_list[0]
 
         # PyTorch model
         self.model = MDSRModule(args=self.args, scale_list=self.scale_list)
-
-        optim_params = []
-        for k, v in self.model.named_parameters():
-            v.requires_grad = False
-            if k.find('transformer') >= 0:
-                v.requires_grad = True
-                optim_params.append(v)
-
         if (is_training):
             self.optim = optim.Adam(
                 filter(lambda p: p.requires_grad, self.model.parameters()),
                 lr=self._get_learning_rate()
             )
-
-            # self.scheduler = optim.lr_scheduler.OneCycleLR(
-            #     self.optim, max_lr=0.005, total_steps=None, epochs=200, steps_per_epoch=self.args.steps_per_epoch,
-            #     anneal_strategy='cos', div_factor=50, final_div_factor=100, last_epoch=-1)
             self.loss_fn = nn.L1Loss()
 
         # configure device
@@ -102,12 +90,10 @@ class MDSR(BaseModel):
         for param_group in self.optim.param_groups:
             param_group['lr'] = lr
 
-
         # do back propagation
         self.optim.zero_grad()
         loss.backward()
         self.optim.step()
-        # self.scheduler.step()
 
         # finalize
         self.global_step += 1
@@ -152,39 +138,80 @@ class MeanShift(nn.Conv2d):
         for params in self.parameters():
             params.requires_grad = False
 
+class MAMLayer(nn.Module):
+    def __init__(self, num_channels, reduction=16, kind=True):
+        super(MAMLayer, self).__init__()
+        self.modulation_map_CSI = 0.0
+        # self.conv_du = nn.Sequential(
+        #     nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=1, stride=1,
+        #               padding=0),
+        #     nn.ReLU(inplace=True),
+        #     nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=1, stride=1,
+        #               padding=0)
+        # )
+        self.kind = kind
 
-class AAFM(nn.Module):
+    def scaling_low(self, x):
+        return 0.5 / (1 + torch.exp(-x))
+
+    def scaling_high(self, x):
+        return 0.5 + 0.5 / (1 + torch.exp(-x))
+
+    def forward(self, x, kind):
+        N, C, W, H = x.size()
+        tmp_var = x.view(N, C, -1).var(dim=-1, keepdim=True)
+        mean_var = tmp_var.view(N, -1).mean(dim=-1, keepdim=True).unsqueeze(-1).repeat(1, C, 1)
+        std_var = tmp_var.view(N, -1).std(dim=-1, keepdim=True).unsqueeze(-1).repeat(1, C, 1)
+        tmp_var = (tmp_var - mean_var) / (std_var+1e-10)
+
+        self.modulation_map_CSI = tmp_var.unsqueeze(-1).repeat(1, 1, W, H)
+
+        if (kind):
+            y = self.scaling_high(self.modulation_map_CSI)
+
+        else:
+            y = self.scaling_low(self.modulation_map_CSI)
+
+        return x * y
+
+
+    #     self.scaling = nn.Sigmoid()
+    #
+    # def forward(self, x):
+    #     N, C, W, H = x.size()
+    #     tmp_var = x.view(N, C, -1).var(dim=-1, keepdim=True)
+    #     mean_var = tmp_var.view(N, -1).mean(dim=-1, keepdim=True).unsqueeze(-1).repeat(1, C, 1)
+    #     std_var = tmp_var.view(N, -1).std(dim=-1, keepdim=True).unsqueeze(-1).repeat(1, C, 1)
+    #     tmp_var = (tmp_var - mean_var) / (std_var+1e-10)
+    #
+    #     self.modulation_map_CSI = tmp_var.unsqueeze(-1).repeat(1, 1, W, H)
+    #
+    #     y = self.scaling(self.modulation_map_CSI)
+    #
+    #     return x * y
+
+
+class AdaptiveFM(nn.Module):
+
     def __init__(self, num_channels, kernel_size=3, coef=1):
-        super(AAFM, self).__init__()
+        super(AdaptiveFM, self).__init__()
         self.coef = coef
         self.transformer = nn.Sequential(
             nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=kernel_size, stride=1,
-                      padding=kernel_size//2, groups=num_channels),
+                      padding=kernel_size // 2, groups=num_channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=kernel_size, stride=1,
                       padding=kernel_size // 2, groups=num_channels)
         )
-        self.scaling = nn.Sigmoid()
-
     def forward(self, x):
-        if self.coef == 0:
-            return x
-        else:
-            tmp = x + self.transformer(x)
-            N, C, W, H = tmp.size()
-            tmp_var = tmp.view(N, C, -1).var(dim=-1, keepdim=True)
-            mean_var = tmp_var.view(N, -1).mean(dim=-1, keepdim=True).unsqueeze(-1).expand_as(tmp_var)
-            var_var = tmp_var.view(N, -1).var(dim=-1, keepdim=True).unsqueeze(-1).expand_as(tmp_var) + 1e-5
-            std_var = var_var.sqrt()
-
-            tmp_var = (tmp_var - mean_var) / std_var
-            modulation_map_CSI = tmp_var.unsqueeze(-1).expand_as(x)
-            tmp = tmp * self.scaling(modulation_map_CSI)
-            return self.coef * tmp + x
+        return self.coef * self.transformer(x) + x
 
 class ResidualBlock(nn.Module):
-    def __init__(self, num_channels, kernel_size=3, weight=1.0, coef=1):
+    def __init__(self, num_channels, kernel_size=3, coef=1, weight=1.0, distill_rate=0.25):
         super(ResidualBlock, self).__init__()
+        self.distilled_channels = int(num_channels * distill_rate)
+        self.remaining_channels = int(num_channels - self.distilled_channels)
+
         self.coef = coef
         self.body = nn.Sequential(
             nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=kernel_size, stride=1,
@@ -194,14 +221,29 @@ class ResidualBlock(nn.Module):
                       padding=kernel_size // 2)
         )
 
-        self.aafm = AAFM(num_channels=num_channels, coef=self.coef)
+        self.adaFM = AdaptiveFM(num_channels=num_channels, coef=self.coef)
+        self.attention_low = MAMLayer(num_channels=num_channels, kind=False)
+        self.attention_high = MAMLayer(num_channels=num_channels, kind=True)
         self.weight = weight
 
+        for params in self.body.parameters():
+            params.requires_grad = False
+
     def forward(self, x):
-        res = self.body(x).mul(self.weight)
-        res = self.aafm(res)
+        res1 = self.body(x)
+        distilled_res1, remaining_res1 = torch.split(res1, (self.distilled_channels, self.remaining_channels), dim=1)
+        res_low = self.attention_low(remaining_res1, kind=False)
+        res_high = self.attention_high(distilled_res1, kind=True)
+        res = torch.cat((res_low, res_high), dim=1)
         output = torch.add(x, res)
         return output
+
+    # def forward(self, x):
+    #     res = self.body(x).mul(self.weight)
+    #     res = self.adaFM(res)
+    #     # res = self.attention(res)
+    #     output = torch.add(x, res)
+    #     return output
 
 
 class UpsampleBlock(nn.Sequential):
@@ -220,7 +262,12 @@ class UpsampleBlock(nn.Sequential):
                 nn.Conv2d(in_channels=num_channels, out_channels=9 * num_channels, kernel_size=3, stride=1, padding=1))
             layers.append(nn.PixelShuffle(3))
 
+        # self.body = nn.Sequential(*layers)
+
         super(UpsampleBlock, self).__init__(*layers)
+
+        for params in self.parameters():
+            params.requires_grad = False
 
 
 class MDSRModule(nn.Module):
@@ -245,6 +292,12 @@ class MDSRModule(nn.Module):
             nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=args.edsr_conv_features, kernel_size=3,
                       stride=1, padding=1))
 
+        # res_block_layers = []
+        # for i in range(args.edsr_res_blocks):
+        #   res_block_layers.append(ResidualBlock(num_channels=args.edsr_conv_features, weight=args.edsr_res_weight))
+        # self.res_blocks = nn.Sequential(*res_block_layers)
+        # self.after_res_conv = nn.Conv2d(in_channels=args.edsr_conv_features, out_channels=args.edsr_conv_features, kernel_size=3, stride=1, padding=1)
+
         self.upsample = nn.ModuleList([
             UpsampleBlock(num_channels=args.edsr_conv_features, scale=scale) for scale in scale_list
         ])
@@ -256,6 +309,11 @@ class MDSRModule(nn.Module):
         self.tail = nn.Sequential(*m_tail)
         self.add_mean = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
 
+        for params in self.head.parameters():
+            params.requires_grad = False
+
+        for params in self.tail.parameters():
+            params.requires_grad = False
 
     def forward(self, x, scale=2):
         x = self.sub_mean(x)

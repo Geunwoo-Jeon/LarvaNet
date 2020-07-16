@@ -52,12 +52,12 @@ class MDSR(BaseModel):
         # PyTorch model
         self.model = MDSRModule(args=self.args, scale_list=self.scale_list)
 
-        optim_params = []
-        for k, v in self.model.named_parameters():
-            v.requires_grad = False
-            if k.find('transformer') >= 0:
-                v.requires_grad = True
-                optim_params.append(v)
+        # optim_params = []
+        # for k, v in self.model.named_parameters():
+        #     v.requires_grad = False
+        #     if k.find('transformer') >= 0:
+        #         v.requires_grad = True
+        #         optim_params.append(v)
 
         if (is_training):
             self.optim = optim.Adam(
@@ -171,16 +171,17 @@ class AAFM(nn.Module):
             return x
         else:
             tmp = x + self.transformer(x)
-            N, C, W, H = tmp.size()
-            tmp_var = tmp.view(N, C, -1).var(dim=-1, keepdim=True)
-            mean_var = tmp_var.view(N, -1).mean(dim=-1, keepdim=True).unsqueeze(-1).expand_as(tmp_var)
-            var_var = tmp_var.view(N, -1).var(dim=-1, keepdim=True).unsqueeze(-1).expand_as(tmp_var) + 1e-5
-            std_var = var_var.sqrt()
+            N, _, _, _ = tmp.size()
 
-            tmp_var = (tmp_var - mean_var) / std_var
-            modulation_map_CSI = tmp_var.unsqueeze(-1).expand_as(x)
-            tmp = tmp * self.scaling(modulation_map_CSI)
-            return self.coef * tmp + x
+            w_variation = torch.mean(torch.abs(x[:, :, :, :-1] - x[:, :, :, 1:]), dim=(2, 3))
+            h_variation = torch.mean(torch.abs(x[:, :, :-1, :] - x[:, :, 1:, :]), dim=(2, 3))
+            tmp_tv = (w_variation + h_variation) * 0.5
+            mean_var = tmp_tv.view(N, -1).mean(dim=-1, keepdim=True).expand_as(tmp_tv)
+            var_var = tmp_tv.view(N, -1).var(dim=-1, keepdim=True).expand_as(tmp_tv) + 1e-5
+            std_var = var_var.sqrt()
+            tmp_tv = (tmp_tv - mean_var) / std_var
+
+            return tmp * self.scaling(tmp_tv.unsqueeze(-1).unsqueeze(-1).expand_as(x)) + x
 
 class ResidualBlock(nn.Module):
     def __init__(self, num_channels, kernel_size=3, weight=1.0, coef=1):

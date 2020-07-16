@@ -60,10 +60,13 @@ class MDSR(BaseModel):
                 optim_params.append(v)
 
         if (is_training):
-            self.optim = optim.Adam(optim_params, lr=self._get_learning_rate())
-            self.scheduler = optim.lr_scheduler.OneCycleLR(
-                self.optim, max_lr=0.005, total_steps=None, epochs=200, steps_per_epoch=self.args.steps_per_epoch,
-                anneal_strategy='cos', div_factor=50, final_div_factor=100, last_epoch=-1
+            self.optim = optim.Adam(
+                filter(lambda p: p.requires_grad, self.model.parameters()),
+                lr=self._get_learning_rate()
+            )
+            # self.scheduler = optim.lr_scheduler.OneCycleLR(
+            #     self.optim, max_lr=0.005, total_steps=None, epochs=200, steps_per_epoch=self.args.steps_per_epoch,
+            #     anneal_strategy='cos', div_factor=50, final_div_factor=100, last_epoch=-1)
             self.loss_fn = nn.L1Loss()
 
         # configure device
@@ -102,7 +105,6 @@ class MDSR(BaseModel):
         self.optim.zero_grad()
         loss.backward()
         self.optim.step()
-        self.scheduler.step()
 
         # finalize
         self.global_step += 1
