@@ -48,7 +48,7 @@ class LarvaNet(BaseModel):
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--num_modules', type=int, default=2, help='The number of residual blocks at LR domain.')
-        parser.add_argument('--num_blocks', type=int, default=16, help='The number of residual blocks at HR domain.')
+        parser.add_argument('--num_blocks', type=str, default=16, help='The number of residual blocks at HR domain.')
         parser.add_argument('--interpolate', type=str, default='bicubic', help='Interpolation method.')
 
         parser.add_argument('--lr', type=float, default=1.5e-4, help='Initial learning rate.')
@@ -267,11 +267,11 @@ class LarvaHead(nn.Module):
 
 
 class LarvaBody(nn.Module):
-    def __init__(self, args):
+    def __init__(self, num_blocks):
         super(LarvaBody, self).__init__()
         num_filters = 48
         res_block_layers = []
-        for i in range(args.num_blocks):
+        for i in range(num_blocks):
             res_block_layers.append(ResidualBlock(num_channels=num_filters))
         self.res_blocks = nn.Sequential(*res_block_layers)
         self.leg = LarvaLeg()
@@ -329,8 +329,12 @@ class LarvaNetModule(nn.Module):
         self.len = args.num_modules
         self.interpolate = args.interpolate
         self.head = LarvaHead()
-        for i in range(self.len):
-            setattr(self, f'body_{i}', LarvaBody(args=args))
+        blocks = list(map(lambda x: int(x), args.num_blocks.split(',')))
+        if len(blocks) != self.ren():
+            raise GeneratorExit('Argument num_blocks should have the same number of elements as num_modules.')
+        else:
+            for i in range(self.len):
+                setattr(self, f'body_{i}', LarvaBody(num_blocks=blocks[i]))
         self.tail = LarvaTail(self.len)
 
     def base(self, x):
