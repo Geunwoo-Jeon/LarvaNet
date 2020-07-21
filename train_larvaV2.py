@@ -26,6 +26,7 @@ def main():
 
     parser.add_argument('--batch_size', type=int, default=16, help='Size of the batches for each training step.')
     parser.add_argument('--input_patch_size', type=int, default=48, help='Size of each input image patch.')
+    parser.add_argument('--steps_per_epoch', type=float, help='Num of steps on 1 epoch.')
     parser.add_argument('--scales', type=str, default='4',
                         help='Scales of the input images. Use the \',\' character to specify multiple scales (e.g., 2,3,4).')
     parser.add_argument('--cuda_device', type=str, default='0',
@@ -69,8 +70,15 @@ def main():
     MODEL_MODULE = importlib.import_module('models.' + args.model)
     model = MODEL_MODULE.create_model()
     model_args, remaining_args = model.parse_args(remaining_args)
-    # volume per step
-    model.volume_per_step = (args.input_patch_size**2)*args.batch_size*3
+    # steps per epoch
+    if args.steps_per_epoch is None:
+        batch_data_size = (args.input_patch_size**2)*args.batch_size*3
+        dataset_size = 300*(1024**2)
+        steps_per_epoch = round_to_1(dataset_size/batch_data_size)
+        args.steps_per_epoch = steps_per_epoch
+    else:
+        steps_per_epoch = args.steps_per_epoch
+    model.steps_per_epoch = int(steps_per_epoch)
     model.prepare(is_training=True, scales=scale_list, global_step=args.global_step)
 
     # check remaining args
@@ -101,8 +109,7 @@ def main():
 
     # train
     print('begin training')
-    print(f'volume {model.volume_per_step/1e6:.2f}M for 1 step.')
-    print(f'needs {model_args.val_volume/model.volume_per_step:.0f}steps for validation')
+    print(f'{model.steps_per_epoch} steps equal to 1 epoch')
     try:
         while True:
             scale = model.get_next_train_scale()
@@ -132,14 +139,14 @@ def main():
             lr = model.get_lr()
             if args.sleep_ratio > 0 and duration > 0:
                 time.sleep(min(10.0, duration * args.sleep_ratio))
-            if model.global_step < 1000 and model.global_step % args.log_freq == 0:
+            if model.global_step < model.steps_per_epoch * 2 and model.global_step % args.log_freq == 0:
                 print('step %d, lr %.10f, loss %.6f (%.3f sec/batch)' % (model.global_step, lr, loss, duration))
                 print(f'dataload_time:{dataload_time:.4f}s, np2ts_time:{np2ts_time:.4f}s, '
                       f'train_time: {train_time:.4f}s')
     except KeyboardInterrupt:
         print('interrupted (KeyboardInterrupt)')
-    except Exception as e:
-        print(e)
+    # except Exception as e:
+    #     print(e)
 
     # finalize
     print('finished')

@@ -42,21 +42,22 @@ def initialize_weights(net_l, scale=1):
 class LarvaNet(BaseModel):
     def __init__(self):
         super().__init__()
-        self.steps_per_epoch = 0
+        self.volume_per_step = 0
 
     def parse_args(self, args):
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--num_modules', type=int, default=2, help='The number of residual blocks at LR domain.')
-        parser.add_argument('--num_blocks', type=int, default=16, help='The number of residual blocks at HR domain.')
+        parser.add_argument('--num_blocks', type=str, default=16, help='The number of residual blocks at HR domain.')
         parser.add_argument('--interpolate', type=str, default='bicubic', help='Interpolation method.')
 
-        parser.add_argument('--lr', type=float, default=1e-3, help='Initial learning rate.')
-        parser.add_argument('--lr_decay', type=float, default=0.5, help='Learning rate decay factor.')
-        parser.add_argument('--threshold', type=float, default=0.005, help='Learning rate decay factor.')
-        parser.add_argument('--min_lr', type=float, default=1e-5, help='Initial learning rate.')
-        parser.add_argument('--patience', type=int, default=6, help='patience for lr scheduler')
-        parser.add_argument('--lambda_cons', type=float, default=0.1, help='lambda for consistency loss')
+        parser.add_argument('--val_volume', type=float, default=7.5e9, help='How much volume need for validation.')
+
+        parser.add_argument('--lr', type=float, default=4e-4, help='Initial learning rate.')
+        parser.add_argument('--lr_decay', type=float, default=0.7, help='Learning rate decay factor.')
+        parser.add_argument('--threshold', type=float, default=0.002, help='Learning rate decay factor.')
+        parser.add_argument('--min_lr', type=float, default=1e-7, help='Minimum learning rate.')
+        parser.add_argument('--patience', type=int, default=0, help='patience for lr scheduler')
 
         self.args, remaining_args = parser.parse_known_args(args=args)
         return copy.deepcopy(self.args), remaining_args
@@ -64,7 +65,8 @@ class LarvaNet(BaseModel):
     def prepare(self, is_training, scales, global_step=0):
         # config. parameters
         self.global_step = global_step
-        self.epoch = 0
+        self.total_volume = 0
+        self.temp_volume = 0
         self.scale_list = scales
         for scale in self.scale_list:
             if not (scale in [2, 3, 4]):
@@ -81,13 +83,13 @@ class LarvaNet(BaseModel):
             self.optim = optim.AdamW(
                 filter(lambda p: p.requires_grad, self.model.parameters()),
                 lr=self.args.lr)
-            self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                self.optim, 0.0008, total_steps=None, epochs=100, steps_per_epoch=self.steps_per_epoch,
-                anneal_strategy='cos', div_factor=20.0, final_div_factor=100)
+            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
+                threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=True)
 
-            # optim.lr_scheduler.ReduceLROnPlateau(
-            # self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
-            # threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=True)
+                # torch.optim.lr_scheduler.OneCycleLR(
+                # self.optim, 0.0008, total_steps=None, epochs=100, steps_per_epoch=self.steps_per_epoch,
+                # anneal_strategy='cos', div_factor=20.0, final_div_factor=100)
 
         # configure device
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -95,6 +97,7 @@ class LarvaNet(BaseModel):
 
     def train_step_larva(self, args, val_dataloader, input_tensor, truth_tensor, summary=None):
         self.global_step += 1
+        self.temp_volume += self.volume_per_step
         # make outputs(forward)
         fea = self.model.head(input_tensor)
         base = self.model.base(input_tensor)
@@ -109,31 +112,29 @@ class LarvaNet(BaseModel):
         self.optim.zero_grad()
         loss.backward()
         self.optim.step()
-        self.scheduler.step()
 
         if self.global_step == 1:
             self.validate_for_train(args, val_dataloader)
 
-        if self.global_step % self.steps_per_epoch == 0:
-            self.epoch += 1
-            if self.epoch % 5 == 0 and self.epoch != 0:
-                self.validate_for_train(args, val_dataloader)
-                # write summary
+        if self.temp_volume >= self.args.val_volume:
+            self.total_volume += self.temp_volume
+            self.temp_volume = 0
+            self.validate_for_train(args, val_dataloader)
+            self.save(base_path=args.train_path)
+            print('saved a model checkpoint at volume %.0fG' % self.total_volume/1e9)
+            # summary, not important
+            if summary is not None:
                 lr = self.get_lr()
-                if summary is not None:
-                    summary.add_scalar('loss', loss, self.global_step)
-                    summary.add_scalar('lr', lr, self.global_step)
+                summary.add_scalar('loss', loss, self.global_step)
+                summary.add_scalar('lr', lr, self.global_step)
 
-                    input_tensor_uint8 = input_tensor.clamp(0, 255).byte()
-                    output_tensor_uint8 = out.clamp(0, 255).byte()
-                    truth_tensor_uint8 = truth_tensor.clamp(0, 255).byte()
-                    for i in range(min(4, len(input_tensor_uint8))):
-                        summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], self.epoch)
-                        summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.epoch)
-                        summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.epoch)
-            if self.epoch % 10 == 0:
-                self.save(base_path=args.train_path)
-                print('saved a model checkpoint at epoch %d' % self.epoch)
+                input_tensor_uint8 = input_tensor.clamp(0, 255).byte()
+                output_tensor_uint8 = out.clamp(0, 255).byte()
+                truth_tensor_uint8 = truth_tensor.clamp(0, 255).byte()
+                for i in range(min(4, len(input_tensor_uint8))):
+                    summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], self.epoch)
+                    summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.epoch)
+                    summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.epoch)
 
         return loss.item()
 
@@ -155,7 +156,8 @@ class LarvaNet(BaseModel):
             psnr_list.append(psnr)
 
         average_psnr = np.mean(psnr_list)
-        print(f'step {self.global_step}, epoch {self.global_step / args.steps_per_epoch:.0f},'
+        self.scheduler.step(average_psnr)
+        print(f'step {self.global_step}, volume {self.total_volume/1e9:.0f}G,'
               f' psnr={average_psnr:.8f}, lr = {self.get_lr():.6f}')
 
     def upscale(self, input_list, scale):
@@ -169,7 +171,7 @@ class LarvaNet(BaseModel):
         return output_tensor.detach().cpu().numpy()
 
     def save(self, base_path):
-        save_path = os.path.join(base_path, 'model_%depoch.pth' % (self.epoch))
+        save_path = os.path.join(base_path, 'model_step%d_vol%.0fG.pth' % (self.epoch, self.total_volume/1e9))
         torch.save(self.model.state_dict(), save_path)
 
     def restore(self, ckpt_path, target=None):
@@ -222,11 +224,11 @@ class LarvaHead(nn.Module):
 
 
 class LarvaBody(nn.Module):
-    def __init__(self, args):
+    def __init__(self, num_blocks):
         super(LarvaBody, self).__init__()
         num_filters = 48
         res_block_layers = []
-        for i in range(args.num_blocks):
+        for i in range(num_blocks):
             res_block_layers.append(ResidualBlock(num_channels=num_filters))
         self.res_blocks = nn.Sequential(*res_block_layers)
         self.leg = LarvaLeg()
@@ -261,8 +263,12 @@ class LarvaNetModule(nn.Module):
         self.len = args.num_modules
         self.interpolate = args.interpolate
         self.head = LarvaHead()
-        for i in range(self.len):
-            setattr(self, f'body_{i}', LarvaBody(args=args))
+        blocks = list(map(lambda x: int(x), args.num_blocks.split(',')))
+        if len(blocks) != self.len:
+            raise GeneratorExit('Argument num_blocks should have the same number of elements as num_modules.')
+        else:
+            for i in range(self.len):
+                setattr(self, f'body_{i}', LarvaBody(num_blocks=blocks[i]))
 
     def base(self, x):
         base = F.interpolate(x, scale_factor=4, mode=self.interpolate, align_corners=False)
