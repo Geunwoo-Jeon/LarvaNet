@@ -330,7 +330,7 @@ class LarvaNetModule(nn.Module):
         self.interpolate = args.interpolate
         self.head = LarvaHead()
         blocks = list(map(lambda x: int(x), args.num_blocks.split(',')))
-        if len(blocks) != self.ren():
+        if len(blocks) != self.len:
             raise GeneratorExit('Argument num_blocks should have the same number of elements as num_modules.')
         else:
             for i in range(self.len):
