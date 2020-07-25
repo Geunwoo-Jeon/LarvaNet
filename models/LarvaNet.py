@@ -51,10 +51,10 @@ class LarvaNet(BaseModel):
         parser.add_argument('--num_blocks', type=str, default=16, help='The number of residual blocks at HR domain.')
         parser.add_argument('--interpolate', type=str, default='bicubic', help='Interpolation method.')
 
-        parser.add_argument('--val_volume', type=float, default=20e9, help='How much volume need for validation.')
+        parser.add_argument('--val_volume', type=float, default=3e9, help='How much volume need for validation.')
 
-        parser.add_argument('--lr', type=float, default=4e-4, help='Initial learning rate.')
-        parser.add_argument('--lr_decay', type=float, default=0.7, help='Learning rate decay factor.')
+        parser.add_argument('--lr', type=float, default=1e-4, help='Initial learning rate.')
+        parser.add_argument('--lr_decay', type=float, default=0.5, help='Learning rate decay factor.')
         parser.add_argument('--threshold', type=float, default=0.001, help='Learning rate decay factor.')
         parser.add_argument('--min_lr', type=float, default=1e-7, help='Minimum learning rate.')
         parser.add_argument('--patience', type=int, default=3, help='patience for lr scheduler')
