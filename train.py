@@ -19,7 +19,7 @@ def main():
 
   parser.add_argument('--batch_size', type=int, default=16, help='Size of the batches for each training step.')
   parser.add_argument('--input_patch_size', type=int, default=48, help='Size of each input image patch.')
-  parser.add_argument('--scale', type=str, default='4', help='Scale of the input images.')
+  parser.add_argument('--scales', type=str, default='4', help='Scale of the input images.')
   parser.add_argument('--cuda_device', type=str, default='0', help='CUDA device index to be used in training. This parameter may be set to the environment variable \'CUDA_VISIBLE_DEVICES\'. Specify it as -1 to disable GPUs.')
 
   parser.add_argument('--train_path', type=str, default='c:/aim2020/edsrb/train/', help='Base path of the trained model to be saved.')
@@ -89,7 +89,9 @@ def main():
     scale = model.get_next_train_scale()
     summary = summary_writers[scale] if (local_train_step % args.summary_freq == 0) else None
     input_list, truth_list = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale, input_patch_size=args.input_patch_size)
-    loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary)
+    input_tensor = torch.as_tensor(input_list, dtype=torch.float32, device=model.device)
+    truth_tensor = torch.as_tensor(truth_list, dtype=torch.float32, device=model.device)
+    loss = model.train_step(input_list=input_tensor, scale=scale, truth_list=truth_tensor, summary=summary)
 
     duration = time.time() - start_time
     if (args.sleep_ratio > 0 and duration > 0):
