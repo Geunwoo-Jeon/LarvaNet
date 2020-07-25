@@ -19,8 +19,8 @@ def main():
   parser.add_argument('--model', type=str, default='edsr', help='Name of the model.')
   parser.add_argument('--scale', type=int, default=4, help='Scale of the input images.')
 
-  parser.add_argument('--input_width', type=int, default=224, help='Width of a dummy input.')
-  parser.add_argument('--input_height', type=int, default=224, help='Height of a dummy input.')
+  parser.add_argument('--input_width', type=int, default=256, help='Width of a dummy input.')
+  parser.add_argument('--input_height', type=int, default=256, help='Height of a dummy input.')
 
   args, remaining_args = parser.parse_known_args()
 

@@ -51,13 +51,13 @@ class LarvaNet(BaseModel):
         parser.add_argument('--num_blocks', type=str, default=16, help='The number of residual blocks at HR domain.')
         parser.add_argument('--interpolate', type=str, default='bicubic', help='Interpolation method.')
 
-        parser.add_argument('--val_volume', type=float, default=7.5e9, help='How much volume need for validation.')
+        parser.add_argument('--val_volume', type=float, default=20e9, help='How much volume need for validation.')
 
         parser.add_argument('--lr', type=float, default=4e-4, help='Initial learning rate.')
         parser.add_argument('--lr_decay', type=float, default=0.7, help='Learning rate decay factor.')
-        parser.add_argument('--threshold', type=float, default=0.002, help='Learning rate decay factor.')
+        parser.add_argument('--threshold', type=float, default=0.001, help='Learning rate decay factor.')
         parser.add_argument('--min_lr', type=float, default=1e-7, help='Minimum learning rate.')
-        parser.add_argument('--patience', type=int, default=0, help='patience for lr scheduler')
+        parser.add_argument('--patience', type=int, default=3, help='patience for lr scheduler')
 
         self.args, remaining_args = parser.parse_known_args(args=args)
         return copy.deepcopy(self.args), remaining_args
@@ -65,7 +65,7 @@ class LarvaNet(BaseModel):
     def prepare(self, is_training, scales, global_step=0):
         # config. parameters
         self.global_step = global_step
-        self.total_volume = 0
+        self.total_volume = 0.0
         self.temp_volume = 0
         self.scale_list = scales
         for scale in self.scale_list:
@@ -121,7 +121,7 @@ class LarvaNet(BaseModel):
             self.temp_volume = 0
             self.validate_for_train(args, val_dataloader)
             self.save(base_path=args.train_path)
-            print('saved a model checkpoint at volume %.0fG' % self.total_volume/1e9)
+            print(f'saved a model checkpoint at volume {self.total_volume/1e9:.0f}G')
             # summary, not important
             if summary is not None:
                 lr = self.get_lr()
@@ -132,9 +132,9 @@ class LarvaNet(BaseModel):
                 output_tensor_uint8 = out.clamp(0, 255).byte()
                 truth_tensor_uint8 = truth_tensor.clamp(0, 255).byte()
                 for i in range(min(4, len(input_tensor_uint8))):
-                    summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], self.epoch)
-                    summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.epoch)
-                    summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.epoch)
+                    summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], self.global_step)
+                    summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.global_step)
+                    summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.global_step)
 
         return loss.item()
 
@@ -156,9 +156,9 @@ class LarvaNet(BaseModel):
             psnr_list.append(psnr)
 
         average_psnr = np.mean(psnr_list)
-        self.scheduler.step(average_psnr)
         print(f'step {self.global_step}, volume {self.total_volume/1e9:.0f}G,'
               f' psnr={average_psnr:.8f}, lr = {self.get_lr():.6f}')
+        self.scheduler.step(average_psnr)
 
     def upscale(self, input_list, scale):
         # numpy to torch
@@ -171,7 +171,7 @@ class LarvaNet(BaseModel):
         return output_tensor.detach().cpu().numpy()
 
     def save(self, base_path):
-        save_path = os.path.join(base_path, 'model_step%d_vol%.0fG.pth' % (self.epoch, self.total_volume/1e9))
+        save_path = os.path.join(base_path, 'model_step%d_vol%.0fG.pth' % (self.global_step, self.total_volume/1e9))
         torch.save(self.model.state_dict(), save_path)
 
     def restore(self, ckpt_path, target=None):
