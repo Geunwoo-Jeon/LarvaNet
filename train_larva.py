@@ -102,7 +102,8 @@ def main():
     # train
     print('begin training')
     print(f'volume {model.volume_per_step/1e6:.2f}M for 1 step.')
-    print(f'needs {model_args.val_volume/model.volume_per_step:.0f}steps for validation')
+    print(f'needs {model_args.val_volume/model.volume_per_step:.0f}steps to validate '
+          f'for {model_args.val_volume/1e9:.1f}G volume.')
     try:
         while True:
             scale = model.get_next_train_scale()
