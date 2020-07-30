@@ -10,6 +10,7 @@ import torch.nn as nn
 import torch.nn.init as init
 import torch.optim as optim
 import torch.nn.functional as F
+import validate
 
 from models.base import BaseModel
 
@@ -41,17 +42,22 @@ def initialize_weights(net_l, scale=1):
 class MSRR(BaseModel):
     def __init__(self):
         super().__init__()
+        self.volume_per_step = 0
 
     def parse_args(self, args):
         parser = argparse.ArgumentParser()
 
         parser.add_argument('--num_blocks', type=int, default=32, help='The number of residual blocks.')
-        parser.add_argument('--interpolate', type=str, default='bilinear', help='Interpolation method.')
+        parser.add_argument('--interpolate', type=str, default='bicubic', help='Interpolation method.')
         parser.add_argument('--res_weight', type=float, default=1.0, help='The scaling factor.')
-        parser.add_argument('--learning_rate', type=float, default=1e-4, help='Initial learning rate.')
-        parser.add_argument('--learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
-        parser.add_argument('--learning_rate_decay_steps', type=int, default=200000,
-                            help='The number of training steps to perform learning rate decay.')
+
+        parser.add_argument('--val_volume', type=float, default=3e9, help='How much volume need for validation.')
+
+        parser.add_argument('--lr', type=float, default=4e-4, help='Initial learning rate.')
+        parser.add_argument('--lr_decay', type=float, default=0.5, help='Learning rate decay factor.')
+        parser.add_argument('--threshold', type=float, default=0.001, help='Learning rate decay factor.')
+        parser.add_argument('--min_lr', type=float, default=1e-7, help='Minimum learning rate.')
+        parser.add_argument('--patience', type=int, default=3, help='patience for lr scheduler')
 
         self.args, remaining_args = parser.parse_known_args(args=args)
         return copy.deepcopy(self.args), remaining_args
@@ -59,6 +65,8 @@ class MSRR(BaseModel):
     def prepare(self, is_training, scales, global_step=0):
         # config. parameters
         self.global_step = global_step
+        self.total_volume = 0.0
+        self.temp_volume = 0
 
         self.scale_list = scales
         for scale in self.scale_list:
@@ -70,12 +78,22 @@ class MSRR(BaseModel):
 
         # PyTorch model
         self.model = MSRRModule(args=self.args, scale=self.scale)
-        if (is_training):
-            self.optim = optim.Adam(
-                filter(lambda p: p.requires_grad, self.model.parameters()),
-                lr=self._get_learning_rate()
-            )
+
+        # if (is_training):
+        #     self.optim = optim.Adam(
+        #         filter(lambda p: p.requires_grad, self.model.parameters()),
+        #         lr=self._get_learning_rate()
+        #     )
+        #     self.loss_fn = nn.L1Loss()
+
+        if is_training:
             self.loss_fn = nn.L1Loss()
+            self.optim = optim.AdamW(
+                filter(lambda p: p.requires_grad, self.model.parameters()),
+                lr=self.args.lr)
+            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
+                threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=True)
 
         # configure device
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -130,6 +148,66 @@ class MSRR(BaseModel):
 
         return loss.item()
 
+    def train_step_larva(self, args, val_dataloader, input_tensor, truth_tensor, summary=None):
+        self.global_step += 1
+        self.temp_volume += self.volume_per_step
+
+        # make outputs(forward)
+        out = self.model(input_tensor)
+        loss = self.loss_fn(out, truth_tensor)
+
+        # do back propagation
+        self.optim.zero_grad()
+        loss.backward()
+        self.optim.step()
+
+        if self.global_step == 1:
+            self.validate_for_train(args, val_dataloader)
+
+        if self.temp_volume >= self.args.val_volume:
+            self.total_volume += self.temp_volume
+            self.temp_volume = 0
+            self.validate_for_train(args, val_dataloader)
+            self.save(base_path=args.train_path)
+            print(f'saved a model checkpoint at volume {self.total_volume/1e9:.0f}G')
+            # summary, not important
+            if summary is not None:
+                lr = self.get_lr()
+                summary.add_scalar('loss', loss, self.global_step)
+                summary.add_scalar('lr', lr, self.global_step)
+
+                input_tensor_uint8 = input_tensor.clamp(0, 255).byte()
+                output_tensor_uint8 = out.clamp(0, 255).byte()
+                truth_tensor_uint8 = truth_tensor.clamp(0, 255).byte()
+                for i in range(min(4, len(input_tensor_uint8))):
+                    summary.add_image('input/%d' % i, input_tensor_uint8[i, :, :, :], self.global_step)
+                    summary.add_image('output/%d' % i, output_tensor_uint8[i, :, :, :], self.global_step)
+                    summary.add_image('truth/%d' % i, truth_tensor_uint8[i, :, :, :], self.global_step)
+
+        return loss.item()
+
+    def validate_for_train(self, args, dataloader):
+        # scheduling lr by validation
+        print('begin validation')
+        num_images = dataloader.get_num_images()
+        psnr_list = []
+
+        for image_index in range(num_images):
+            input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index,
+                                                                             scale=4)
+            output_image = self.upscale(input_list=[input_image], scale=4)[0]
+            truth_image = validate._image_to_uint8(truth_image)
+            output_image = validate._image_to_uint8(output_image)
+            truth_image = validate._fit_truth_image_size(output_image=output_image, truth_image=truth_image)
+
+            psnr = validate._image_psnr(output_image=output_image, truth_image=truth_image)
+            psnr_list.append(psnr)
+
+        average_psnr = np.mean(psnr_list)
+        print(f'step {self.global_step}, volume {self.total_volume/1e9:.0f}G,'
+              f' psnr={average_psnr:.8f}, lr = {self.get_lr():.6f}')
+        self.scheduler.step(average_psnr)
+
     def upscale(self, input_list, scale):
         # numpy to torch
         input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
@@ -140,6 +218,9 @@ class MSRR(BaseModel):
         # finalize
         return output_tensor.detach().cpu().numpy()
 
+    def get_lr(self):
+        return self.optim.param_groups[0]['lr']
+    
     def fwd_runtime(self, input_tensor):
         output_tensor = self.model(input_tensor)
         return output_tensor

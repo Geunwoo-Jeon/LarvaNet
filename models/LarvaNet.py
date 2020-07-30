@@ -170,6 +170,16 @@ class LarvaNet(BaseModel):
         # finalize
         return output_tensor.detach().cpu().numpy()
 
+    def test(self, input_list):
+        # numpy to torch
+        input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
+
+        # get SR
+        output_tensor = self.model(input_tensor)
+
+        # finalize
+        return output_tensor
+
     def save(self, base_path):
         save_path = os.path.join(base_path, 'model_step%d_vol%.0fG.pth' % (self.global_step, self.total_volume/1e9))
         torch.save(self.model.state_dict(), save_path)

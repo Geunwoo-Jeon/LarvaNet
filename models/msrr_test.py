@@ -139,12 +139,9 @@ class MSRR(BaseModel):
         # finalize
         return output_tensor.detach().cpu().numpy()
 
-    def test(self, input_list):
-        # numpy to torch
-        input_tensor = torch.tensor(input_list, dtype=torch.float32, device=self.device)
-
+    def test(self, input_image):
         # get SR
-        output_tensor = self.model(input_tensor)
+        output_tensor = self.model(input_image)
 
         # finalize
         return output_tensor
@@ -170,79 +167,55 @@ class MeanShift(nn.Conv2d):
 class ResidualBlock(nn.Module):
     def __init__(self, num_channels, weight=1.0):
         super(ResidualBlock, self).__init__()
+        self.conv1 = nn.Conv2d(num_channels, num_channels, 3, 1, 1, bias=True)
+        self.conv2 = nn.Conv2d(num_channels, num_channels, 3, 1, 1, bias=True)
 
-        self.body = nn.Sequential(
-            nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=3, stride=1, padding=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_channels=num_channels, out_channels=num_channels, kernel_size=3, stride=1, padding=1)
-        )
         # initialization
-        initialize_weights(self.body, 0.1)
+        initialize_weights([self.conv1, self.conv2], 0.1)
 
     def forward(self, x):
-        res = self.body(x)
+        res = F.relu(self.conv1(x), inplace=True)
+        res = self.conv2(res)
         output = torch.add(x, res)
-        return output
-
-
-class UpsampleBlock(nn.Module):
-    def __init__(self, num_channels, scale):
-        super(UpsampleBlock, self).__init__()
-
-        layers = []
-        if scale == 2 or scale == 4 or scale == 8:
-            for _ in range(int(math.log(scale, 2))):
-                layers.append(
-                    nn.Conv2d(in_channels=num_channels, out_channels=4 * num_channels, kernel_size=3, stride=1,
-                              padding=1))
-                layers.append(nn.PixelShuffle(2))
-                layers.append(nn.LeakyReLU(negative_slope=0.1, inplace=True))
-        elif scale == 3:
-            layers.append(
-                nn.Conv2d(in_channels=num_channels, out_channels=9 * num_channels, kernel_size=3, stride=1, padding=1))
-            layers.append(nn.PixelShuffle(3))
-            layers.append(nn.LeakyReLU(negative_slope=0.1, inplace=True))
-
-        self.body = nn.Sequential(*layers)
-        initialize_weights(self.body, 0.1)
-
-    def forward(self, x):
-        output = self.body(x)
         return output
 
 
 class MSRRModule(nn.Module):
     def __init__(self, args, scale):
         super(MSRRModule, self).__init__()
-
-        self.mean_shift = MeanShift([114.4, 111.5, 103.0], sign=1.0)
-        self.first_conv = nn.Conv2d(in_channels=3, out_channels=args.num_filters, kernel_size=3, stride=1,
+        self.upscale = scale
+        self.conv_first = nn.Conv2d(in_channels=3, out_channels=args.num_filters, kernel_size=3, stride=1,
                                     padding=1)
 
         res_block_layers = []
         for i in range(args.num_blocks):
             res_block_layers.append(ResidualBlock(num_channels=args.num_filters, weight=args.res_weight))
-        self.res_blocks = nn.Sequential(*res_block_layers)
-        self.upsample = UpsampleBlock(num_channels=args.num_filters, scale=scale)
-        self.HR_conv = nn.Conv2d(in_channels=args.num_filters, out_channels=args.num_filters,
+        self.recon_trunk = nn.Sequential(*res_block_layers)
+
+        self.upconv1 = nn.Conv2d(args.num_filters, args.num_filters*4, 3, 1, 1, bias=True)
+        self.upconv2 = nn.Conv2d(args.num_filters, args.num_filters * 4, 3, 1, 1, bias=True)
+        self.pixel_shuffle= nn.PixelShuffle(2)
+
+        self.HRconv = nn.Conv2d(in_channels=args.num_filters, out_channels=args.num_filters,
                                         kernel_size=3, stride=1, padding=1)
-        self.final_conv = nn.Conv2d(in_channels=args.num_filters, out_channels=3, kernel_size=3, stride=1,
+        self.conv_last = nn.Conv2d(in_channels=args.num_filters, out_channels=3, kernel_size=3, stride=1,
                                     padding=1)
-        self.mean_inverse_shift = MeanShift([114.4, 111.5, 103.0], sign=-1.0)
 
         # activation function
         self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
 
         # initialization
-        initialize_weights([self.first_conv, self.HR_conv, self.final_conv], 0.1)
+        initialize_weights([self.conv_first, self.upconv1, self.upconv2, self.HRconv, self.conv_last], 0.1)
 
     def forward(self, x):
-        out = self.lrelu(self.first_conv(x))
+        fea = self.lrelu(self.conv_first(x))
 
-        out = self.res_blocks(out)
+        out = self.recon_trunk(fea)
 
-        out = self.upsample(out)
-        out = self.final_conv(self.lrelu(self.HR_conv(out)))
+        out = self.lrelu(self.pixel_shuffle(self.upconv1(out)))
+        out = self.lrelu(self.pixel_shuffle(self.upconv2(out)))
+
+        out = self.conv_last(self.lrelu(self.HRconv(out)))
         base = F.interpolate(x, scale_factor=4, mode='bilinear', align_corners=False)
         out += base
 

@@ -128,3 +128,4 @@ dmypy.json
 .idea/inspectionProfiles/profiles_settings.xml
 *.xml
 *.iml
+*.pth
