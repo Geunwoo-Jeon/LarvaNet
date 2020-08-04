@@ -53,8 +53,9 @@ class LarvaNet(BaseModel):
 
         parser.add_argument('--val_volume', type=float, default=3e9, help='How much volume need for validation.')
 
-        parser.add_argument('--lr', type=float, default=1e-4, help='Initial learning rate.')
+        parser.add_argument('--lr', type=float, default=4e-4, help='Initial learning rate.')
         parser.add_argument('--lr_decay', type=float, default=0.5, help='Learning rate decay factor.')
+        parser.add_argument('--lr_step', type=int, default=20000, help='Learning rate decay step.')
         parser.add_argument('--threshold', type=float, default=0.001, help='Learning rate decay factor.')
         parser.add_argument('--min_lr', type=float, default=1e-7, help='Minimum learning rate.')
         parser.add_argument('--patience', type=int, default=3, help='patience for lr scheduler')
@@ -83,13 +84,7 @@ class LarvaNet(BaseModel):
             self.optim = optim.AdamW(
                 filter(lambda p: p.requires_grad, self.model.parameters()),
                 lr=self.args.lr)
-            self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
-                threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=True)
-
-                # torch.optim.lr_scheduler.OneCycleLR(
-                # self.optim, 0.0008, total_steps=None, epochs=100, steps_per_epoch=self.steps_per_epoch,
-                # anneal_strategy='cos', div_factor=20.0, final_div_factor=100)
+            self.scheduler = optim.lr_scheduler.StepLR(self.optim, self.args.lr_step, self.args.lr_decay)
 
         # configure device
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -112,6 +107,7 @@ class LarvaNet(BaseModel):
         self.optim.zero_grad()
         loss.backward()
         self.optim.step()
+        self.scheduler.step()
 
         if self.global_step == 1:
             self.validate_for_train(args, val_dataloader)
@@ -157,8 +153,7 @@ class LarvaNet(BaseModel):
 
         average_psnr = np.mean(psnr_list)
         print(f'step {self.global_step}, volume {self.total_volume/1e9:.0f}G,'
-              f' psnr={average_psnr:.8f}, lr = {self.get_lr():.6f}')
-        self.scheduler.step(average_psnr)
+              f' psnr={average_psnr:.8f}, lr = {self.get_lr():.8f}')
 
     def upscale(self, input_list, scale):
         # numpy to torch
