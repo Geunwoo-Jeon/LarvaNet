@@ -37,7 +37,7 @@ def _image_psnr(im1, im2):
 def _image_ssim(im1, im2):
   isRGB = len(im1.shape) == 3 and im1.shape[-1] == 3
   return skimage.measure.compare_ssim(im1, im2, K1=0.01, K2=0.03, gaussian_weights=True, sigma=1.5,
-                                      use_sample_covariance=False, multichannel=isRGB)
+                                      use_sample_covariance=False, multichannel=False)
 
 def _save_image(image, path):
   image = cv.cvtColor(image, cv.COLOR_RGB2BGR)
@@ -95,7 +95,8 @@ def main():
   average_psnr_list = []
   average_ssim_list = []
   duration_list = []
-  for dataset in datasets:
+  # for dataset in datasets:
+  for dataset in ['Urban100']:
     input_path = os.path.join(input_root_path, dataset)
     truth_path = os.path.join(truth_root_path, dataset)
     output_path = os.path.join(output_root_path, dataset)
