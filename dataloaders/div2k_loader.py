@@ -68,7 +68,7 @@ class DIV2KLoader(BaseLoader):
       input_list.append(input_patch)
       truth_list.append(truth_patch)
     
-    return np.array(input_list).copy(), np.array(truth_list).copy()
+    return np.array(input_list).astype(np.float32).copy(), np.array(truth_list).astype(np.float32).copy()
   
 
   def get_random_image_patch_pair(self, scale, input_patch_size):
@@ -207,5 +207,4 @@ class DIV2KLoader(BaseLoader):
     image = cv.imread(path)
     image = cv.cvtColor(image, cv.COLOR_BGR2RGB)
     image = np.transpose(image, [2, 0, 1])
-    image = image.astype(np.float32)
     return image
