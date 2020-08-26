@@ -93,7 +93,7 @@ def main():
       scale = model.get_next_train_scale()
       summary = summary_writers[scale] if (local_train_step % args.summary_freq == 0) else None
       input_list, truth_list = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale, input_patch_size=args.input_patch_size)
-      loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary, train_kind=True)
+      loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary, stage=0)
 
       duration = time.time() - start_time
       if (args.sleep_ratio > 0 and duration > 0):
@@ -116,7 +116,7 @@ def main():
       summary = summary_writers[scale] if (local_train_step % args.summary_freq == 0) else None
       input_list, truth_list = dataloader.get_patch_batch(batch_size=args.batch_size, scale=scale,
                                                           input_patch_size=args.input_patch_size)
-      loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary, train_kind=False)
+      loss = model.train_step(input_list=input_list, scale=scale, truth_list=truth_list, summary=summary, stage=1)
 
       duration = time.time() - start_time
       if (args.sleep_ratio > 0 and duration > 0):
