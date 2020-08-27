@@ -36,6 +36,7 @@ class EDSR_MAXL(BaseModel):
         parser.add_argument('--edsr_learning_rate_decay', type=float, default=0.5, help='Learning rate decay factor.')
         parser.add_argument('--edsr_learning_rate_decay_steps', type=int, default=200000,
                             help='The number of training steps to perform learning rate decay.')
+        parser.add_argument('--aux_learning_rate', type=float, default=1e-5, help='Initial learning rate.')
 
         self.args, remaining_args = parser.parse_known_args(args=args)
         return copy.deepcopy(self.args), remaining_args
@@ -64,7 +65,7 @@ class EDSR_MAXL(BaseModel):
             )
             self.gen_optim = optim.Adam(
                 filter(lambda p: p.requires_grad, self.label_generator.parameters()),
-                lr=self._get_learning_rate()
+                lr=self._get_aux_learning_rate()
             )
             self.loss_fn = Loss(device=self.device, width=self.args.edsr_train_patch_size * self.scale)
             self.loss_l1 = nn.L1Loss()
@@ -93,7 +94,7 @@ class EDSR_MAXL(BaseModel):
         input_tensor = torch.as_tensor(input_list, dtype=torch.float32, device=self.device)
         truth_tensor = torch.as_tensor(truth_list, dtype=torch.float32, device=self.device)
         lmbda = 0.1
-        lr_tmp = 0.00001
+        lr_tmp = self._get_aux_learning_rate()
 
         if (stage == 0):
             # get SR and calculate loss
@@ -225,6 +226,10 @@ class EDSR_MAXL(BaseModel):
 
     def _get_learning_rate(self):
         return self.args.edsr_learning_rate * (self.args.edsr_learning_rate_decay ** (
+                    self.global_step // self.args.edsr_learning_rate_decay_steps))
+
+    def _get_aux_learning_rate(self):
+        return self.args.aux_learning_rate * (self.args.edsr_learning_rate_decay ** (
                     self.global_step // self.args.edsr_learning_rate_decay_steps))
 
 
