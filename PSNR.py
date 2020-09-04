@@ -76,7 +76,7 @@ def main():
     output_root_path = 'C:/aim2020/data/test_SR/Urban100'
     log = open(os.path.join(output_root_path, 'log.txt'), 'w')
 
-    models = ['VDSR', 'LapSRN', 'MemNet', 'IDN', 'CARN', 'msrr', 'IMDN', 'LarvaNet']
+    models = ['msrr', 'LarvaNet']
 
     # test
     print('begin test')

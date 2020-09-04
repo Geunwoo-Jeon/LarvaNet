@@ -20,7 +20,7 @@ def main():
     # parse arguments
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--dataloader', type=str, default='combined_loader', help='Name of the data loader.')
+    parser.add_argument('--dataloader', type=str, default='div2k_train_loader_queue', help='Name of the data loader.')
     parser.add_argument('--val_dataloader', type=str, default='div2k_val_loader', help='Name of the data loader.')
     parser.add_argument('--model', type=str, default='edsr', help='Name of the model.')
 
@@ -139,8 +139,8 @@ def main():
                       f'train_time: {train_time:.4f}s')
     except KeyboardInterrupt:
         print('interrupted (KeyboardInterrupt)')
-    except Exception as e:
-        print(e)
+    # except Exception as e:
+    #     print(e)
 
     # finalize
     print('finished')

@@ -2,6 +2,7 @@ import argparse
 import copy
 import math
 import os
+import time
 
 import numpy as np
 
@@ -68,6 +69,7 @@ class MSRR(BaseModel):
         self.global_step = global_step
         self.total_volume = 0.0
         self.temp_volume = 0
+        self.tmp_time = time.time()
 
         self.scale_list = scales
         for scale in self.scale_list:
@@ -151,6 +153,9 @@ class MSRR(BaseModel):
         return loss.item()
 
     def train_step_larva(self, args, val_dataloader, input_tensor, truth_tensor, summary=None):
+        # if self.global_step == 0:
+        #     self.validate_for_train(args, val_dataloader)
+
         self.global_step += 1
         self.temp_volume += self.volume_per_step
 
@@ -162,9 +167,6 @@ class MSRR(BaseModel):
         self.optim.zero_grad()
         loss.backward()
         self.optim.step()
-
-        if self.global_step == 1:
-            self.validate_for_train(args, val_dataloader)
 
         if self.temp_volume >= self.args.val_volume:
             self.total_volume += self.temp_volume
@@ -190,7 +192,10 @@ class MSRR(BaseModel):
 
     def validate_for_train(self, args, dataloader):
         # scheduling lr by validation
-        print('begin validation')
+        time_per_val = time.time() - self.tmp_time
+        self.tmp_time = time.time()
+        step_per_val = self.args.val_volume / self.volume_per_step
+        print(f'begin validation. {step_per_val:.0f} steps for {time_per_val:.0f} sec.')
         num_images = dataloader.get_num_images()
         psnr_list = []
 

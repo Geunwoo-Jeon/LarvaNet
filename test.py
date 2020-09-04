@@ -34,10 +34,16 @@ def shave(img, border):
 def _image_psnr(im1, im2):
   return skimage.measure.compare_psnr(im1, im2)
 
+def _image_psnr_DIV2K(output_image, truth_image):
+  diff = np.float32(truth_image) - np.float32(output_image)
+  mse = np.mean(np.power(diff, 2))
+  psnr = 10.0 * np.log10(255.0 ** 2 / mse)
+  return psnr
+
 def _image_ssim(im1, im2):
   isRGB = len(im1.shape) == 3 and im1.shape[-1] == 3
   return skimage.measure.compare_ssim(im1, im2, K1=0.01, K2=0.03, gaussian_weights=True, sigma=1.5,
-                                      use_sample_covariance=False, multichannel=False)
+                                      use_sample_covariance=False, multichannel=isRGB)
 
 def _save_image(image, path):
   image = cv.cvtColor(image, cv.COLOR_RGB2BGR)
@@ -89,19 +95,19 @@ def main():
   log = open(os.path.join(output_root_path, 'log.txt'), 'w')
 
   datasets = ['Set5', 'Set14', 'BSD100', 'Urban100', 'Manga109']
+  datasets = ['DIV2K_val']
 
   # test
   print('begin test')
   average_psnr_list = []
   average_ssim_list = []
   duration_list = []
-  # for dataset in datasets:
-  for dataset in ['Urban100']:
+  for dataset in datasets:
     input_path = os.path.join(input_root_path, dataset)
     truth_path = os.path.join(truth_root_path, dataset)
     output_path = os.path.join(output_root_path, dataset)
     os.makedirs(output_path, exist_ok=True)
-    image_name_list = [f for f in os.listdir(input_path) if f.lower().endswith('.png')]
+    image_name_list = [f for f in os.listdir(truth_path) if f.lower().endswith('.png')]
 
     print(f'{dataset}: {len(image_name_list)} images are prepared')
     log.write(f'{dataset}: {len(image_name_list)} images are prepared\n')
@@ -111,9 +117,13 @@ def main():
     ssim_list = []
     with torch.no_grad():
       for image_index, image_name in enumerate(image_name_list):
-        image_input_path = os.path.join(input_path, image_name)
         image_truth_path = os.path.join(truth_path, image_name)
-        image_output_path = os.path.join(output_path, os.path.splitext(image_name)[0]+'.png')
+        image_output_path = os.path.join(output_path, image_name)
+        if dataset == 'DIV2K_val':
+          input_image_name = os.path.splitext(image_name)[0]+'x4'+'.png'
+        else:
+          input_image_name = image_name
+        image_input_path = os.path.join(input_path, input_image_name)
 
         # load image as form [C, H, W]
         input_image = cv.imread(image_input_path)
@@ -146,16 +156,20 @@ def main():
         truth_image = _image_to_uint8(truth_image)
         cropped_truth_image = shave(truth_image, scale)
 
-        # evaluate on YCbCr channels
+        # evaluate on Y in YCbCr channels
         test_output_image = skimage.color.rgb2ycbcr(cropped_output_image)[:, :, 0]
         test_output_image = _image_to_uint8(test_output_image)
         test_truth_image = skimage.color.rgb2ycbcr(cropped_truth_image)[:, :, 0]
         test_truth_image = _image_to_uint8(test_truth_image)
 
-        psnr = _image_psnr(test_output_image, test_truth_image)
-        psnr_list.append(psnr)
+        if dataset == 'DIV2K_val':
+          psnr = _image_psnr_DIV2K(output_image, truth_image)
+          ssim = _image_ssim(output_image, truth_image)
+        else:
+          psnr = _image_psnr(test_output_image, test_truth_image)
+          ssim = _image_ssim(test_output_image, test_truth_image)
 
-        ssim = _image_ssim(test_output_image, test_truth_image)
+        psnr_list.append(psnr)
         ssim_list.append(ssim)
 
         _save_image(output_image, image_output_path)

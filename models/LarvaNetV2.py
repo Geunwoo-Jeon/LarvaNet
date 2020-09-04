@@ -194,7 +194,7 @@ class LarvaNet(BaseModel):
         torch.save(self.model.state_dict(), save_path)
 
     def restore(self, ckpt_path, target=None):
-        pretrained_dict = torch.load(ckpt_path)
+        pretrained_dict = torch.load(ckpt_path, map_location=self.device)
         model_dict = self.model.state_dict()
 
         # 1. filter out unnecessary keys

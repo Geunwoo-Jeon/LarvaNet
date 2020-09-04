@@ -88,9 +88,12 @@ class LarvaNet(BaseModel):
                 self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
                 threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=True)
 
-                # torch.optim.lr_scheduler.OneCycleLR(
-                # self.optim, 0.0008, total_steps=None, epochs=100, steps_per_epoch=self.steps_per_epoch,
-                # anneal_strategy='cos', div_factor=20.0, final_div_factor=100)
+            # self.scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(
+            #     self.optim, self.steps_per_epoch * 150, T_mult=1, eta_min=self.args.lr/10, last_epoch=-1)
+
+            # self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            #     self.optim, 0.0005, total_steps=None, epochs=200, steps_per_epoch=self.steps_per_epoch,
+            #     anneal_strategy='linear', div_factor=50.0, final_div_factor=10)
 
         # configure device
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -103,11 +106,17 @@ class LarvaNet(BaseModel):
         fea = self.model.head(input_tensor)
         base = self.model.base(input_tensor)
         loss = 0
+        features = []
         for i in range(self.args.num_modules):
-            fea = getattr(self.model, f'body_{i}')(fea)
-            out = getattr(self.model, f'body_{i}').leg(fea, base)
+            if i == 0:
+                features.append(getattr(self.model, f'body_{i}')(fea))
+            else:
+                features.append(getattr(self.model, f'body_{i}')(features[i-1]))
+            out = getattr(self.model, f'body_{i}').leg(features[i], base)
             loss += self.loss_fn(out, truth_tensor)
-        loss = loss / self.args.num_modules
+        out = self.model.tail(features, base)
+        loss += self.loss_fn(out, truth_tensor)
+        loss = loss / (self.args.num_modules + 1)
 
         # do back propagation
         self.optim.zero_grad()
@@ -144,17 +153,17 @@ class LarvaNet(BaseModel):
         print('begin validation')
         num_images = dataloader.get_num_images()
         psnr_list = []
+        with torch.no_grad():
+            for image_index in range(num_images):
+                input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index,
+                                                                                 scale=4)
+                output_image = self.upscale(input_list=[input_image], scale=4)[0]
+                truth_image = validate._image_to_uint8(truth_image)
+                output_image = validate._image_to_uint8(output_image)
+                truth_image = validate._fit_truth_image_size(output_image=output_image, truth_image=truth_image)
 
-        for image_index in range(num_images):
-            input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index,
-                                                                             scale=4)
-            output_image = self.upscale(input_list=[input_image], scale=4)[0]
-            truth_image = validate._image_to_uint8(truth_image)
-            output_image = validate._image_to_uint8(output_image)
-            truth_image = validate._fit_truth_image_size(output_image=output_image, truth_image=truth_image)
-
-            psnr = validate._image_psnr(output_image=output_image, truth_image=truth_image)
-            psnr_list.append(psnr)
+                psnr = validate._image_psnr(output_image=output_image, truth_image=truth_image)
+                psnr_list.append(psnr)
 
         average_psnr = np.mean(psnr_list)
         print(f'step {self.global_step}, volume {self.total_volume/1e9:.0f}G,'
@@ -186,7 +195,16 @@ class LarvaNet(BaseModel):
         torch.save(self.model.state_dict(), save_path)
 
     def restore(self, ckpt_path, target=None):
-        self.model.load_state_dict(torch.load(ckpt_path, map_location=self.device))
+        pretrained_dict = torch.load(ckpt_path, map_location=self.device)
+        model_dict = self.model.state_dict()
+
+        # 1. filter out unnecessary keys
+        pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
+        # 2. overwrite entries in the existing state dict
+        model_dict.update(pretrained_dict)
+        # 3. load the new state dict
+        self.model.load_state_dict(model_dict)
+        self.model.to(self.device)
 
     def get_model(self):
         return self.model
@@ -219,6 +237,32 @@ class ResidualBlock(nn.Module):
         res = self.body(x)
         output = torch.add(x, res)
         return output
+
+#
+# class CAlayer(nn.Module):
+#     def __init__(self, num_channels, reduction=12):
+#         super(CAlayer, self).__init__()
+#         self.linear_res = nn.Sequential(
+#             nn.Linear(in_features=num_channels, out_features=num_channels // reduction),
+#             nn.ReLU(inplace=True),
+#             nn.Linear(in_features=num_channels // reduction, out_features=num_channels)
+#         )
+#         initialize_weights(self.linear_res, 0.1)
+#         self.scaling = nn.Sigmoid()
+#
+#     def forward(self, x):
+#         N, C, W, H = x.size()
+#         var = x.view(N, C, -1).var(dim=2, keepdim=True)
+#         var = var.view(N, C)
+#         mean_var = var.mean(dim=1, keepdim=True)
+#         var_var = var.var(dim=1, keepdim=True) + 1e-5
+#         std_var = var_var.sqrt()
+#         normalized_var = (var - mean_var) / std_var
+#         val_res = self.linear_res(normalized_var)
+#         normalized_var = normalized_var.view(N, C, 1, 1)
+#         val_res = val_res.view(N, C, 1, 1)
+#         y = self.scaling(normalized_var + val_res).expand(N, C, W, H)
+#         return x * y
 
 
 class LarvaHead(nn.Module):
@@ -268,6 +312,29 @@ class LarvaLeg(nn.Module):
         return out
 
 
+class LarvaTail(nn.Module):
+    def __init__(self, num_modules):
+        super(LarvaTail, self).__init__()
+        num_filters = 48
+        self.merge_conv = nn.Conv2d(in_channels=num_filters * num_modules, out_channels=num_filters,
+                                    kernel_size=3, stride=1, padding=1)
+        self.recon_block = nn.Sequential(
+            nn.Conv2d(in_channels=num_filters, out_channels=num_filters, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_channels=num_filters, out_channels=num_filters, kernel_size=3, stride=1, padding=1)
+        )
+        initialize_weights([self.recon_block, self.merge_conv], 0.1)
+        self.upsample = nn.PixelShuffle(4)
+
+    def forward(self, features, base):
+        fea = torch.cat(features, dim=1)
+        fea = self.merge_conv(fea)
+        fea = self.recon_block(fea)
+        out = self.upsample(fea)
+        out += base
+        return out
+
+
 class LarvaNetModule(nn.Module):
     def __init__(self, args):
         super(LarvaNetModule, self).__init__()
@@ -281,6 +348,7 @@ class LarvaNetModule(nn.Module):
         else:
             for i in range(self.len):
                 setattr(self, f'body_{i}', LarvaBody(num_blocks=blocks[i]))
+        self.tail = LarvaTail(self.len)
 
     def base(self, x):
         base = F.interpolate(x, scale_factor=4, mode=self.interpolate, align_corners=False)
