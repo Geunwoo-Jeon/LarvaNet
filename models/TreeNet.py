@@ -258,8 +258,6 @@ class TreeNet(nn.Module):
     def forward(self, x):
         out = self.common_parts(x)
         out = self.branch_0(out)
-
-        out = self.upsample(out)
         base = F.interpolate(x, scale_factor=4, mode=self.interpolate, align_corners=False)
         out += base
 
