@@ -17,7 +17,7 @@ from models.base import BaseModel
 
 
 def create_model():
-    return TreeNet()
+    return ModelContainer()
 
 
 def initialize_weights(net_l, scale=1):
@@ -40,7 +40,7 @@ def initialize_weights(net_l, scale=1):
                 init.constant_(m.bias.data, 0.0)
 
 
-class TreeNet(BaseModel):
+class ModelContainer(BaseModel):
     def __init__(self):
         super().__init__()
         self.volume_per_step = 0
@@ -82,7 +82,7 @@ class TreeNet(BaseModel):
         self.scale = self.scale_list[0]
 
         # PyTorch model, first branch is default
-        self.model = TreeNetModule(args=self.args, scale=self.scale)
+        self.model = TreeNet(args=self.args, scale=self.scale)
 
         if is_training:
             self.loss_fn = nn.L1Loss()
@@ -103,7 +103,7 @@ class TreeNet(BaseModel):
         torch.save(self.model.state_dict(), save_path)
 
     def restore(self, ckpt_path, target=None):
-        self.model.load_state_dict(torch.load(ckpt_path, map_location=self.device), strict=False)
+        self.model.load_state_dict(torch.load(ckpt_path, map_location=self.device))
   
     def get_model(self):
         return self.model
@@ -223,41 +223,43 @@ class ResidualBlock(nn.Module):
         return output
 
 
-class TreeNetModule(nn.Module):
+class TreeNet(nn.Module):
     def __init__(self, args, scale):
-        super(TreeNetModule, self).__init__()
+        super(TreeNet, self).__init__()
 
         num_filters = 48
 
         # functions
         self.upsample = nn.PixelShuffle(scale)
-        lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
+        self.lrelu = nn.LeakyReLU(negative_slope=0.1, inplace=True)
         self.interpolate = args.interpolate
 
         # common parts
-        first_conv = nn.Conv2d(in_channels=3, out_channels=num_filters, kernel_size=3, stride=1,
+        self.first_conv = nn.Conv2d(in_channels=3, out_channels=num_filters, kernel_size=3, stride=1,
                                     padding=1)
         common_block_layers = []
         for i in range(args.num_common_blocks):
             common_block_layers.append(ResidualBlock(num_channels=num_filters, weight=args.res_weight))
-        common_blocks = nn.Sequential(*common_block_layers)
+        self.common_blocks = nn.Sequential(*common_block_layers)
 
         # independent parts
         for i in range(args.num_branches):
             tmp_branch_blocks = []
             for _ in range(args.num_branch_blocks):
                 tmp_branch_blocks.append(ResidualBlock(num_channels=num_filters, weight=args.res_weight))
-            setattr(self, f'branch_{i}', nn.Sequential(*tmp_branch_blocks, self.upsample))
+            setattr(self, f'branch_{i}', nn.Sequential(*tmp_branch_blocks))
 
         # initialization
-        initialize_weights(first_conv, 0.1)
+        initialize_weights(self.first_conv, 0.1)
 
         # common parts
-        self.common_parts = nn.Sequential(first_conv, lrelu, common_blocks)
+
+        # self.common_parts = nn.Sequential(self.first_conv, self.lrelu, self.common_blocks)
 
     def forward(self, x):
-        out = self.common_parts(x)
+        out = self.lrelu(self.first_conv(x))
         out = self.branch_0(out)
+        out = self.upsample(out)
         base = F.interpolate(x, scale_factor=4, mode=self.interpolate, align_corners=False)
         out += base
 
