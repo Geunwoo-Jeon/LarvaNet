@@ -99,10 +99,11 @@ class LarvaNet(BaseModel):
         self.temp_volume += self.volume_per_step
         # make outputs(forward)
         fea = self.model.head(input_tensor)
+        res = fea
         base = self.model.base(input_tensor)
         loss = 0
         for i in range(self.args.num_modules):
-            fea = getattr(self.model, f'body_{i}')(fea)
+            fea, res = getattr(self.model, f'body_{i}')(fea, res)
             out = getattr(self.model, f'body_{i}').leg(fea, base)
             loss += self.loss_fn(out, truth_tensor)
         loss = loss / self.args.num_modules
@@ -242,9 +243,9 @@ class LarvaBody(nn.Module):
         self.res_blocks = nn.Sequential(*res_block_layers)
         self.leg = LarvaLeg()
 
-    def forward(self, x):
-        fea = self.res_blocks(x)
-        return x + fea
+    def forward(self, fea, res):
+        res = self.res_blocks(res)
+        return fea + res, res
 
 
 class LarvaLeg(nn.Module):
@@ -285,8 +286,9 @@ class LarvaNetModule(nn.Module):
 
     def forward(self, x):
         fea = self.head(x)
+        res = fea
         for i in range(self.len):
-            fea = getattr(self, f'body_{i}')(fea)
+            fea, res = getattr(self, f'body_{i}')(fea, res)
         base = self.base(x)
         out = getattr(self, f'body_{self.len - 1}').leg(fea, base)
         return out

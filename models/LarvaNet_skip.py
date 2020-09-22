@@ -260,7 +260,7 @@ class LarvaLeg(nn.Module):
         self.upsample = nn.PixelShuffle(4)
 
     def forward(self, fea, base):
-        fea = self.recon_block(fea)
+        fea += self.recon_block(fea)
         out = self.upsample(fea)
         out += base
         return out

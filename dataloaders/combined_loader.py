@@ -33,7 +33,7 @@ class DIV2KLoader(BaseLoader):
         parser.add_argument('--data_truth_path', type=str, default='C:/aim2020/data/Combined_HR',
                             help='Base path of the ground-truth images.')
         parser.add_argument('--data_cached', action='store_true', help='If true, cache the data on the memory.')
-        parser.add_argument('--data_num_queue_runners', type=int, default=4, help='The number of queue runners.')
+        parser.add_argument('--data_num_queue_runners', type=int, default=6, help='The number of queue runners.')
 
         self.args, remaining_args = parser.parse_known_args(args=args)
         return copy.deepcopy(self.args), remaining_args
