@@ -259,8 +259,8 @@ class LarvaLeg(nn.Module):
         initialize_weights(self.recon_block, 0.1)
         self.upsample = nn.PixelShuffle(4)
 
-    def forward(self, fea, base):
-        fea += self.recon_block(fea)
+    def forward(self, x, base):
+        fea = self.recon_block(x) + x
         out = self.upsample(fea)
         out += base
         return out
