@@ -83,8 +83,6 @@ def main():
   # validate
   print('begin validation')
   num_images = dataloader.get_num_images()
-  average_duration_dict = {}
-  average_psnr_dict = {}
   for scale in scale_list:
     psnr_list = []
     with torch.no_grad():

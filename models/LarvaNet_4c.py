@@ -59,8 +59,7 @@ class LarvaNet(BaseModel):
 
         parser.add_argument('--threshold', type=float, default=0.001, help='Learning rate decay factor.')
         parser.add_argument('--min_lr', type=float, default=1e-8, help='Minimum learning rate.')
-        parser.add_argument('--patience', type=int, default=3, help='patience for lr scheduler')
-        parser.add_argument('--cooldown', type=int, default=6, help='patience for lr scheduler')
+        parser.add_argument('--patience', type=int, default=1, help='patience for lr scheduler')
 
         self.args, remaining_args = parser.parse_known_args(args=args)
         return copy.deepcopy(self.args), remaining_args
@@ -88,7 +87,7 @@ class LarvaNet(BaseModel):
                 lr=self.args.lr)
             # self.scheduler = optim.lr_scheduler.StepLR(self.optim, self.args.lr_step, self.args.lr_decay)
             self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-                self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience, cooldown=self.args.cooldown,
+                self.optim, mode='max', factor=self.args.lr_decay, patience=self.args.patience,
                 threshold=self.args.threshold, threshold_mode='abs', min_lr=self.args.min_lr, verbose=True)
 
         # configure device

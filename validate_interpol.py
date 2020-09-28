@@ -37,7 +37,7 @@ def main():
   # parse arguments
   parser = argparse.ArgumentParser()
 
-  parser.add_argument('--dataloader', type=str, default='div2k_loader', help='Name of the data loader.')
+  parser.add_argument('--dataloader', type=str, default='div2k_val_loader', help='Name of the data loader.')
   parser.add_argument('--interpolate', type=str, default='bilinear', help='Name of the interpolation method.')
 
   parser.add_argument('--scales', type=str, default='4', help='Scales of the input images. Use the \',\' character to specify multiple scales (e.g., 2,3,4).')
@@ -62,10 +62,6 @@ def main():
   _, remaining_args = dataloader.parse_args(remaining_args)
   dataloader.prepare(scales=scale_list)
 
-  # check remaining args
-  if (len(remaining_args) > 0):
-    print('WARNING: found unhandled arguments: %s' % (remaining_args))
-
   # validate
   print('begin validation')
   num_images = dataloader.get_num_images()
@@ -78,7 +74,7 @@ def main():
     for image_index in range(num_images):
       input_image, truth_image, image_name = dataloader.get_image_pair(image_index=image_index, scale=scale)
 
-      input_tensor = torch.tensor([input_image], dtype=torch.float32, device='cuda')
+      input_tensor = torch.tensor([input_image], dtype=torch.float32, device='cpu')
       start_time = time.perf_counter()
       output_tensor = F.interpolate(input_tensor, scale_factor=scale, mode=args.interpolate, align_corners=False)[0]
       end_time = time.perf_counter()
